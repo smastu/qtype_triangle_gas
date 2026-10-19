@@ -33,9 +33,27 @@ button.ghost { background: transparent; color: #fff; box-shadow: none; border: 1
   cursor: pointer; text-align: left; min-height: 64px; }
 .tile.cleared::after { content: " ✓"; font-weight: bold; }
 .tile .sub { font-size: 12px; opacity: .9; }
-.question { font-size: 16px; line-height: 1.6; margin: 0 0 10px; }
+.question { font-size: 18px; line-height: 1.6; margin: 0 0 10px; }
 .stage { display: grid; justify-items: center; gap: 8px; margin: 8px 0; }
-.stage .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.play-grid { display: grid; gap: 14px; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 900px) {
+  .play-grid { grid-template-columns: 320px minmax(0, 1fr); }
+  .play-grid .side-panel { order: -1; }
+}
+/* 三角形の配置（頂点の位置は Student.html の TRI_POS）。幅に応じて高さを変える */
+.tri { position: relative; width: 100%; max-width: 640px; margin: 0 auto; aspect-ratio: 1 / 0.85; }
+.tri.compound { aspect-ratio: 1 / 1; }
+.tri-lines { position: absolute; inset: 0; width: 100%; height: 100%; }
+.tri-face { fill: rgba(111, 170, 90, .28); stroke: none; }
+.tri-edge { fill: none; stroke: #5d7c5c; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.tri .slot { position: absolute; transform: translate(-50%, 0); width: 36%; min-height: 0; padding: 8px; font-size: 15px; }
+.tri.compound .slot { width: 30%; font-size: 14px; }
+@media (max-width: 480px) {
+  .tri { aspect-ratio: 1 / 1; }
+  .tri.compound { aspect-ratio: 1 / 1.3; }
+  .tri .slot { width: 40%; font-size: 14px; }
+  .tri.compound .slot { width: 34%; font-size: 13px; }
+}
 .slot { width: 150px; min-height: 84px; border-radius: 12px; background: var(--cream); border: 3px dashed var(--cream-edge);
   padding: 6px; position: relative; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 13px; }
 .slot.over { border-color: var(--board); background: #f3ffe6; }
@@ -43,10 +61,10 @@ button.ghost { background: transparent; color: #fff; box-shadow: none; border: 1
   padding: 1px 8px; border-radius: 8px; }
 .slot.filled { border-style: solid; }
 .card { background: var(--board); color: #fff; border-radius: 10px; padding: 8px 10px; box-shadow: 0 3px 0 var(--board-edge);
-  font-size: 13px; line-height: 1.4; cursor: grab; user-select: none; width: 100%; }
+  font-size: 16px; line-height: 1.45; cursor: grab; user-select: none; width: 100%; }
 .card.dragging { opacity: .5; }
 .card.selected { outline: 3px solid #ffd54a; }
-.palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 8px; }
+.palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 8px; }
 .palette .card { min-height: 60px; }
 .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
 .feedback { margin-top: 10px; min-height: 24px; font-size: 14px; color: #2b2b2b; }
@@ -59,7 +77,7 @@ button.ghost { background: transparent; color: #fff; box-shadow: none; border: 1
 footer.small { font-size: 12px; opacity: .8; text-align: center; padding: 16px; }
 @media (max-width: 480px) {
   main { padding: 10px 12px 80px; }
-  .slot { width: 128px; min-height: 76px; font-size: 12px; }
+  .slot { width: 128px; min-height: 76px; font-size: 14px; }
   .question { font-size: 15px; }
   button { min-height: 48px; }
 }
@@ -1230,10 +1248,12 @@ var API = (function () {
       <div class="panel">
         <div id="prob-title" class="status" style="color:var(--text);opacity:1"></div>
         <p id="prob-text" class="question"></p>
-        <div id="stage" class="stage"></div>
-        <div class="panel" style="background:rgba(255,255,255,.85);margin:8px 0 0">
-          <div id="palette-title" style="font-weight:bold;font-size:13px;margin-bottom:4px;color:#2b2b2b">カード（ドラッグするか、タップして頂点を選び、もう一度タップ）</div>
-          <div id="palette" class="palette"></div>
+        <div class="play-grid">
+          <div id="stage" class="stage"></div>
+          <div class="side-panel panel" style="background:rgba(251,247,220,.9);margin:0">
+            <div id="palette-title" style="font-weight:bold;font-size:15px;margin-bottom:6px;color:#2b2b2b">カード（ドラッグするか、タップして頂点を選び、もう一度タップ）</div>
+            <div id="palette" class="palette"></div>
+          </div>
         </div>
         <div class="bar">
           <button id="btn-prev" type="button">もどる</button>
@@ -1362,26 +1382,49 @@ var STU = (function () {
 
   function slotLabel(mode, k) { return TRI.SLOT_LABELS[k] || k; }
 
+  // 頂点の位置（箱の中心。全体に対する割合）。画像の三角形の配置に合わせる。
+  var TRI_POS = {
+    single: { claim: [50, 0], fact: [22, 60], warrant: [78, 60] },
+    compound: { final_claim: [55, 0], middle: [35, 34], upper_warrant: [76, 34], lower_fact: [18, 70], lower_warrant: [52, 70] }
+  };
+  // 三角形の面（上の三角形と下の三角形）
+  var TRI_FACES = {
+    single: [['claim', 'fact', 'warrant']],
+    compound: [['final_claim', 'middle', 'upper_warrant'], ['middle', 'lower_fact', 'lower_warrant']]
+  };
+
   function renderStage() {
     var mode = st.cur.mode;
     var stage = $('stage');
-    // 配置の形（単一は 3 頂点、複合は 5 頂点の 3 段）
-    var layout = mode === 'compound'
-      ? [['final_claim'], ['middle', 'upper_warrant'], ['lower_fact', 'lower_warrant']]
-      : [['claim'], ['fact', 'warrant']];
     stage.innerHTML = '';
-    layout.forEach(function (keys) {
-      var row = document.createElement('div');
-      row.className = 'row';
-      keys.forEach(function (k) { row.appendChild(makeSlot(k)); });
-      stage.appendChild(row);
+    stage.className = 'stage tri ' + mode;
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 100 100');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.setAttribute('class', 'tri-lines');
+    TRI_FACES[mode].forEach(function (face) {
+      var pts = face.map(function (k) { return TRI_POS[mode][k].join(','); }).join(' ');
+      var fill = document.createElementNS(NS, 'polygon');
+      fill.setAttribute('points', pts);
+      fill.setAttribute('class', 'tri-face');
+      svg.appendChild(fill);
+      var edge = document.createElementNS(NS, 'polygon');
+      edge.setAttribute('points', pts);
+      edge.setAttribute('class', 'tri-edge');
+      svg.appendChild(edge);
     });
+    stage.appendChild(svg);
+    TRI.slotKeys(mode).forEach(function (k) { stage.appendChild(makeSlot(k)); });
   }
 
   function makeSlot(k) {
     var el = document.createElement('div');
     el.className = 'slot';
     el.dataset.slot = k;
+    var pos = TRI_POS[st.cur.mode][k];
+    el.style.left = pos[0] + '%';
+    el.style.top = pos[1] + '%';
     var lab = document.createElement('span');
     lab.className = 'label';
     lab.textContent = slotLabel(st.cur.mode, k);
