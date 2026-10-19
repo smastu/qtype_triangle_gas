@@ -1329,6 +1329,7 @@ var STU = (function () {
     box.innerHTML = '';
     if (!st.problems.length) {
       box.innerHTML = '<p>まだ問題がありません。先生に伝えてください。</p>';
+      show('view-levels');   // 問題が無くても一覧の画面を出す（ログイン画面に残さない）
       return;
     }
     st.problems.forEach(function (p, i) {
@@ -1566,6 +1567,7 @@ var STU = (function () {
     st.problems = r.problems || [];
     st.version = r.problemsVersion || '';
     st.flushMs = r.flushMs || 5000; st.maxBatch = r.maxBatch || 100;
+    $('login-msg').textContent = '';
     $('who').textContent = 'ログイン中：' + (r.registered ? (r.grade + '年 ' + r.cls + '組 ' + r.number + '番') : r.userId);
     $('btn-logout').classList.remove('hidden');
     renderLevels();
