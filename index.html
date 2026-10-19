@@ -1,0 +1,1613 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>三角ロジック</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+/* 三角ロジック：ゲーム調（空・草・木・緑の板カード・クリーム色のスロット）。styles.css（移植元）の配色に合わせる。 */
+:root {
+  --sky-top: #bfe6ff; --sky-bottom: #e9f8ff; --grass: #7cc35a; --grass-dark: #4e8f35;
+  --wood: #8b5a2b; --wood-dark: #5b3a1a; --board: #5fae4a; --board-edge: #3d7d2e;
+  --cream: #fff6dc; --cream-edge: #d9c48a; --text: #2b2b2b; --ok: #2e7d32; --ng: #b23b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --sky-top: #1d3350; --sky-bottom: #2a4a3a; --cream: #4a4330; --cream-edge: #7d6e40; --text: #f2f2f2; }
+}
+:root[data-theme="dark"] { --sky-top: #1d3350; --sky-bottom: #2a4a3a; --cream: #4a4330; --cream-edge: #7d6e40; --text: #f2f2f2; }
+* { box-sizing: border-box; }
+body { margin: 0; background: linear-gradient(var(--sky-top), var(--sky-bottom)); color: var(--text);
+  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif; min-height: 100vh; }
+header.top { background: var(--wood); color: #fff; padding: 10px 16px; display: flex; justify-content: space-between;
+  align-items: center; gap: 8px; flex-wrap: wrap; border-bottom: 4px solid var(--wood-dark); }
+header.top h1 { font-size: 18px; margin: 0; }
+main { padding: 12px 16px 80px; max-width: 980px; margin: 0 auto; }
+.grass { background: linear-gradient(var(--grass), var(--grass-dark)); height: 18px; margin-top: -2px; }
+button { font: inherit; border: 0; border-radius: 10px; padding: 10px 16px; cursor: pointer; background: #fff; color: #333;
+  box-shadow: 0 3px 0 #b9b19a; min-height: 44px; }
+button.primary { background: var(--board); color: #fff; box-shadow: 0 3px 0 var(--board-edge); font-weight: bold; }
+button:disabled { opacity: .5; cursor: default; }
+button.ghost { background: transparent; color: #fff; box-shadow: none; border: 1px solid #fff; }
+.panel { background: rgba(255,255,255,.7); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+.levels { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.tile { background: var(--board); color: #fff; border-radius: 12px; padding: 10px 12px; box-shadow: 0 4px 0 var(--board-edge);
+  cursor: pointer; text-align: left; min-height: 64px; }
+.tile.cleared::after { content: " ✓"; font-weight: bold; }
+.tile .sub { font-size: 12px; opacity: .9; }
+.question { font-size: 16px; line-height: 1.6; margin: 0 0 10px; }
+.stage { display: grid; justify-items: center; gap: 8px; margin: 8px 0; }
+.stage .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.slot { width: 150px; min-height: 84px; border-radius: 12px; background: var(--cream); border: 3px dashed var(--cream-edge);
+  padding: 6px; position: relative; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 13px; }
+.slot.over { border-color: var(--board); background: #f3ffe6; }
+.slot .label { position: absolute; top: -10px; left: 10px; background: var(--wood); color: #fff; font-size: 11px;
+  padding: 1px 8px; border-radius: 8px; }
+.slot.filled { border-style: solid; }
+.card { background: var(--board); color: #fff; border-radius: 10px; padding: 8px 10px; box-shadow: 0 3px 0 var(--board-edge);
+  font-size: 13px; line-height: 1.4; cursor: grab; user-select: none; width: 100%; }
+.card.dragging { opacity: .5; }
+.card.selected { outline: 3px solid #ffd54a; }
+.palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 8px; }
+.palette .card { min-height: 60px; }
+.bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.feedback { margin-top: 10px; min-height: 24px; font-size: 14px; color: #2b2b2b; }
+.feedback:not(:empty) { background: rgba(255,255,255,.94); border-radius: 10px; padding: 8px 12px; }
+.feedback .ok { color: var(--ok); font-weight: bold; font-size: 16px; }
+.feedback .hint { color: #2b2b2b; margin: 4px 0; }
+.feedback .err { color: var(--ng); }
+.status { font-size: 12px; color: #fff; opacity: .9; }
+.hidden { display: none !important; }
+footer.small { font-size: 12px; opacity: .8; text-align: center; padding: 16px; }
+@media (max-width: 480px) {
+  main { padding: 10px 12px 80px; }
+  .slot { width: 128px; min-height: 76px; font-size: 12px; }
+  .question { font-size: 15px; }
+  button { min-height: 48px; }
+}
+</style>
+
+</head>
+<body>
+<script>
+var MSK_CONFIG = {"endpoint":"","clientId":"616831545005-bq3nvkckl888i71nhmfs9qjdu5b088li.apps.googleusercontent.com"};
+</script>
+<!-- 自動生成：tools/build_gas.js が src/engine.js から作る。手で編集しない。 -->
+<script>
+/**
+ * 三角ロジック 判定エンジン（移植元: qtype_triangle/classes/constraint_evaluator.php と evaluate.php）
+ *
+ * ブラウザ（学習者・教員画面）、GAS サーバ（判定と課題の保存時の検査）、node のテストで同じファイルを使う。
+ * 判定規則を二重に持たないため、PHP の挙動を一つずつ写してある（PHP の関数名を各所に残した）。
+ *
+ * 単一モード（single）: スロット claim / fact / warrant
+ *   P.S 命題型  claim・fact＝個別命題、warrant＝一般命題
+ *   T.S 中項共有 fact.述語 == warrant.前件
+ *   E.S 結論項一致 claim.述語 == warrant.後件
+ *   M.S 意味的妥当性 配置された全カードの semantic_valid が真（サブフラグ m_s_* も含む）
+ *
+ * 複合モード（compound）: スロット final_claim / middle / upper_warrant / lower_fact / lower_warrant
+ *   P.S・T.S・E.S・M.S は上下両三角形について判定
+ *   C.S 連鎖整合性  中間命題スロットのカードが correct_slot=middle のもの
+ *   I.P.S 中間命題タイプ  middle が個別命題
+ *   F.S 最終主張位置  final_claim に role=correct_final のカード
+ *
+ * @package qtype_triangle（GAS 版）
+ */
+var TRI = (function () {
+  'use strict';
+
+  var SINGLE_SLOTS = ['claim', 'fact', 'warrant'];
+  var COMPOUND_SLOTS = ['final_claim', 'middle', 'upper_warrant', 'lower_fact', 'lower_warrant'];
+
+  // 画面の表示順（学習者の認知順: 位置→構造→整合→意味）。PHP renderer の slot_labels と runner.js の order に合わせる
+  var FLAG_ORDER = ['f_s', 'i_p_s', 'p_s', 'c_s', 't_s', 'e_s', 'm_s_fact', 'm_s_w_obj', 'm_s_w_exc', 'm_s_w_rel'];
+
+  var SLOT_LABELS = {
+    claim: '主張', fact: '根拠', warrant: '理由付け',
+    final_claim: '最終主張', middle: '中間命題（兼 下主張）', upper_warrant: '上理由付け',
+    lower_fact: '下根拠', lower_warrant: '下理由付け'
+  };
+
+  var FLAG_LABELS = {
+    p_s: '命題型制約', t_s: '中項共有制約', e_s: '結論項一致制約', m_s: '意味的妥当性',
+    c_s: '連鎖整合性（中間命題）', i_p_s: '中間命題タイプ', f_s: '最終主張位置',
+    m_s_fact: '意味: 根拠の事実性', m_s_w_obj: '意味: 理由付けの客観性',
+    m_s_w_exc: '意味: 理由付けの例外耐性', m_s_w_rel: '意味: 理由付けと主張の関連性'
+  };
+
+  var FLAG_HINTS = {
+    p_s: '主張と根拠は個別命題、理由付けは一般命題（〇〇ならば××）の形である必要があります',
+    t_s: '根拠の述語と、理由付けの前件（P）が一致していません',
+    e_s: '主張の述語と、理由付けの後件（Q）が一致していません',
+    m_s: '配置された命題のうち、意味的に納得しにくいものが含まれています',
+    c_s: '中間命題に、中間命題として用意されたカード以外が置かれています',
+    i_p_s: '中間命題は個別命題（〇〇は××である）の形である必要があります',
+    f_s: '最終主張の位置には、最終主張用のカードを置く必要があります',
+    m_s_fact: '根拠が事実として信頼できるか確認しましょう',
+    m_s_w_obj: '理由付けが主観的すぎる可能性があります',
+    m_s_w_exc: '理由付けに例外が多すぎる可能性があります',
+    m_s_w_rel: '理由付けが主張と十分に関連していない可能性があります'
+  };
+
+  /** PHP の (int) に近い変換。null/undefined は既定値 d（PHP の ?? 1 に当たる） */
+  function toInt(v, d) {
+    if (v === null || v === undefined) return d;
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    var n = parseInt(v, 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  /** PHP の ($x ?? '') に当たる文字列化 */
+  function str(v) {
+    return v === null || v === undefined ? '' : String(v);
+  }
+
+  /**
+   * 用語の正規化（constraint_evaluator::normalize_term）。
+   * 空白（ASCII の空白類と全角空白）をすべて除き、前後の trim をする。
+   */
+  function normalizeTerm(s) {
+    var t = str(s).replace(/[ \t\n\v\f\r　]+/g, '');
+    return t.replace(/^[ \t\n\r\0\x0B]+|[ \t\n\r\0\x0B]+$/g, '');
+  }
+
+  function slotKeys(mode) {
+    return mode === 'compound' ? COMPOUND_SLOTS.slice() : SINGLE_SLOTS.slice();
+  }
+
+  /** card_no → card の表を作る（PHP __construct の cards_by_no） */
+  function indexCards(cards) {
+    var byNo = {};
+    (cards || []).forEach(function (c) { byNo[toInt(c.card_no, 0)] = c; });
+    return byNo;
+  }
+
+  /** スロット連想配列 → 配置カードの解決（空・未知の番号は null）。PHP resolve_placed */
+  function resolvePlaced(byNo, slots, keys) {
+    var out = {};
+    keys.forEach(function (k) {
+      var no = toInt(slots ? slots[k] : 0, 0);
+      out[k] = no > 0 && byNo[no] ? byNo[no] : null;
+    });
+    return out;
+  }
+
+  function anyNull(placed, keys) {
+    for (var i = 0; i < keys.length; i++) {
+      if (placed[keys[i]] === null) return true;
+    }
+    return false;
+  }
+
+  // ----- P.S -------------------------------------------------------------
+  function checkPropositionFormSingle(p) {
+    if (anyNull(p, SINGLE_SLOTS)) return false;
+    return str(p.claim.proposition_form) === 'particular'
+      && str(p.fact.proposition_form) === 'particular'
+      && str(p.warrant.proposition_form) === 'general';
+  }
+
+  function checkPropositionFormCompound(p) {
+    if (anyNull(p, COMPOUND_SLOTS)) return false;
+    return str(p.final_claim.proposition_form) === 'particular'
+      && str(p.middle.proposition_form) === 'particular'
+      && str(p.lower_fact.proposition_form) === 'particular'
+      && str(p.upper_warrant.proposition_form) === 'general'
+      && str(p.lower_warrant.proposition_form) === 'general';
+  }
+
+  // ----- T.S -------------------------------------------------------------
+  function checkTermSharingSingle(p) {
+    var fact = p.fact, warrant = p.warrant;
+    if (!fact || !warrant) return false;
+    var f = normalizeTerm(fact.predicate_term), w = normalizeTerm(warrant.antecedent_term);
+    if (f === '' || w === '') return false;
+    return f === w;
+  }
+
+  function checkTermSharingCompound(p) {
+    var lf = p.lower_fact, lw = p.lower_warrant, m = p.middle, uw = p.upper_warrant;
+    if (!lf || !lw || !m || !uw) return false;
+    var lowerOk = normalizeTerm(lf.predicate_term) === normalizeTerm(lw.antecedent_term)
+      && normalizeTerm(lf.predicate_term) !== '';
+    var upperOk = normalizeTerm(m.predicate_term) === normalizeTerm(uw.antecedent_term)
+      && normalizeTerm(m.predicate_term) !== '';
+    return lowerOk && upperOk;
+  }
+
+  // ----- E.S -------------------------------------------------------------
+  function checkEndTermSingle(p) {
+    var claim = p.claim, warrant = p.warrant;
+    if (!claim || !warrant) return false;
+    var c = normalizeTerm(claim.predicate_term), q = normalizeTerm(warrant.consequent_term);
+    if (c === '' || q === '') return false;
+    return c === q;
+  }
+
+  function checkEndTermCompound(p) {
+    var m = p.middle, lw = p.lower_warrant, fc = p.final_claim, uw = p.upper_warrant;
+    if (!m || !lw || !fc || !uw) return false;
+    var lowerOk = normalizeTerm(m.predicate_term) === normalizeTerm(lw.consequent_term)
+      && normalizeTerm(m.predicate_term) !== '';
+    var upperOk = normalizeTerm(fc.predicate_term) === normalizeTerm(uw.consequent_term)
+      && normalizeTerm(fc.predicate_term) !== '';
+    return lowerOk && upperOk;
+  }
+
+  // ----- C.S / I.P.S / F.S（複合のみ） ---------------------------------------
+  function checkChainConsistency(p) {
+    var m = p.middle;
+    if (!m) return false;
+    return str(m.correct_slot) === 'middle';
+  }
+
+  function checkIntermediateForm(p) {
+    var m = p.middle;
+    if (!m) return false;
+    return str(m.proposition_form) === 'particular';
+  }
+
+  function checkFinalClaimPosition(p) {
+    var fc = p.final_claim;
+    if (!fc) return false;
+    return str(fc.role) === 'correct_final';
+  }
+
+  // ----- M.S（意味的妥当性）---------------------------------------------------
+  /**
+   * PHP check_semantic_subflags. 根拠系・理由付け系のカードごとに属性を見る。
+   * 属性が無いカードは 1（真）扱い（PHP の ?? 1）。未配置が1つでもあれば全部偽。
+   */
+  function checkSemanticSubflags(p, mode, keys) {
+    var result = { m_s: true, m_s_fact: true, m_s_w_obj: true, m_s_w_exc: true, m_s_w_rel: true };
+    if (anyNull(p, keys)) {
+      return { m_s: false, m_s_fact: false, m_s_w_obj: false, m_s_w_exc: false, m_s_w_rel: false };
+    }
+    var factKeys = mode === 'compound' ? ['lower_fact'] : ['fact'];
+    var warrantKeys = mode === 'compound' ? ['upper_warrant', 'lower_warrant'] : ['warrant'];
+
+    var overall = true;
+    keys.forEach(function (k) {
+      if (toInt(p[k].semantic_valid, 1) !== 1) overall = false;
+    });
+
+    factKeys.forEach(function (k) {
+      var c = p[k];
+      if (!c || toInt(c.semantic_factual, 1) !== 1) result.m_s_fact = false;
+    });
+    warrantKeys.forEach(function (k) {
+      var c = p[k];
+      if (!c) {
+        result.m_s_w_obj = false; result.m_s_w_exc = false; result.m_s_w_rel = false;
+        return;
+      }
+      if (toInt(c.semantic_subjective, 1) !== 1) result.m_s_w_obj = false;
+      if (toInt(c.semantic_exception, 1) !== 1) result.m_s_w_exc = false;
+      if (toInt(c.semantic_relevance, 1) !== 1) result.m_s_w_rel = false;
+    });
+
+    result.m_s = overall && result.m_s_fact && result.m_s_w_obj && result.m_s_w_exc && result.m_s_w_rel;
+    return result;
+  }
+
+  function toFlag(b) {
+    return b ? 1 : 0;
+  }
+
+  /**
+   * PHP constraint_evaluator::evaluate。
+   * @param {string} mode 'single' | 'compound'
+   * @param {Array} cards カードの配列（card_no, proposition_form, ... を持つ）
+   * @param {Object} slots スロットキー → card_no（0 は空）
+   * @return {Object} フラグ（単一は 8 個、複合は 11 個）
+   */
+  function evaluate(mode, cards, slots) {
+    var byNo = indexCards(cards);
+    if (mode === 'compound') {
+      var pc = resolvePlaced(byNo, slots, COMPOUND_SLOTS);
+      var sub = checkSemanticSubflags(pc, 'compound', COMPOUND_SLOTS);
+      return {
+        p_s: toFlag(checkPropositionFormCompound(pc)),
+        t_s: toFlag(checkTermSharingCompound(pc)),
+        e_s: toFlag(checkEndTermCompound(pc)),
+        m_s: toFlag(sub.m_s),
+        m_s_fact: toFlag(sub.m_s_fact),
+        m_s_w_obj: toFlag(sub.m_s_w_obj),
+        m_s_w_exc: toFlag(sub.m_s_w_exc),
+        m_s_w_rel: toFlag(sub.m_s_w_rel),
+        c_s: toFlag(checkChainConsistency(pc)),
+        i_p_s: toFlag(checkIntermediateForm(pc)),
+        f_s: toFlag(checkFinalClaimPosition(pc))
+      };
+    }
+    var ps = resolvePlaced(byNo, slots, SINGLE_SLOTS);
+    var s2 = checkSemanticSubflags(ps, 'single', SINGLE_SLOTS);
+    return {
+      p_s: toFlag(checkPropositionFormSingle(ps)),
+      t_s: toFlag(checkTermSharingSingle(ps)),
+      e_s: toFlag(checkEndTermSingle(ps)),
+      m_s: toFlag(s2.m_s),
+      m_s_fact: toFlag(s2.m_s_fact),
+      m_s_w_obj: toFlag(s2.m_s_w_obj),
+      m_s_w_exc: toFlag(s2.m_s_w_exc),
+      m_s_w_rel: toFlag(s2.m_s_w_rel)
+    };
+  }
+
+  /** PHP constraint_evaluator::is_full_satisfaction（複合は C.S・I.P.S・F.S も必要） */
+  function isFullSatisfaction(flags, mode) {
+    var base = toInt(flags.p_s, 0) === 1 && toInt(flags.t_s, 0) === 1
+      && toInt(flags.e_s, 0) === 1 && toInt(flags.m_s, 0) === 1;
+    if (mode !== 'compound') return base;
+    return base && toInt(flags.c_s, 0) === 1 && toInt(flags.i_p_s, 0) === 1 && toInt(flags.f_s, 0) === 1;
+  }
+
+  /**
+   * evaluate.php の順序課題判定。order_required の課題で、正解カード（role=correct / correct_final）が
+   * correct_slot のスロットに置かれているかを見る。order_required が偽なら常に真。
+   */
+  function orderOk(mode, cards, slots, orderRequired) {
+    if (!orderRequired) return true;
+    var keys = slotKeys(mode);
+    for (var i = 0; i < cards.length; i++) {
+      var c = cards[i];
+      var role = str(c.role);
+      if (role !== 'correct' && role !== 'correct_final') continue;
+      var expected = str(c.correct_slot);
+      if (expected === '' || keys.indexOf(expected) < 0) continue;
+      if (toInt(slots[expected], 0) !== toInt(c.card_no, 0)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * 1 回の CHECK の判定（evaluate.php と同じ手順）。
+   * @param {Object} problem 問題（mode, order_required, cards）
+   * @param {Object} slots スロットキー → card_no
+   * @return {{flags, full, ok, jdg}} full は制約の充足、ok は順序も含めた正解、jdg は 's' / 'f'
+   */
+  function judge(problem, slots) {
+    var mode = problem.mode === 'compound' ? 'compound' : 'single';
+    var flags = evaluate(mode, problem.cards, slots);
+    var full = isFullSatisfaction(flags, mode);
+    var ok = full && orderOk(mode, problem.cards, slots, !!toInt(problem.order_required, 0));
+    return { flags: flags, full: full, ok: ok, jdg: ok ? 's' : 'f' };
+  }
+
+  /** 正解配置（role=correct / correct_final のカードを correct_slot へ）。正解が無いスロットは 0 */
+  function correctSlots(problem) {
+    var mode = problem.mode === 'compound' ? 'compound' : 'single';
+    var out = {};
+    slotKeys(mode).forEach(function (k) { out[k] = 0; });
+    (problem.cards || []).forEach(function (c) {
+      var role = str(c.role);
+      var slot = str(c.correct_slot);
+      if ((role === 'correct' || role === 'correct_final') && out.hasOwnProperty(slot)) {
+        out[slot] = toInt(c.card_no, 0);
+      }
+    });
+    return out;
+  }
+
+  /** 全スロットが埋まっているか */
+  function isComplete(mode, slots) {
+    return slotKeys(mode).every(function (k) { return toInt(slots[k], 0) > 0; });
+  }
+
+  /**
+   * 配置の全列挙（検査用）。カードから相異なる番号を取り、スロット数ぶん並べる。
+   * 解の数（PHP count_valid_solutions 相当）の検査や生成器の一意性検査に使う。
+   */
+  function forEachPlacement(mode, cards, fn) {
+    var keys = slotKeys(mode);
+    var nos = (cards || []).map(function (c) { return toInt(c.card_no, 0); });
+    var cur = {};
+    var used = {};
+    function rec(i) {
+      if (i === keys.length) { fn(Object.assign({}, cur)); return; }
+      for (var j = 0; j < nos.length; j++) {
+        if (used[nos[j]]) continue;
+        used[nos[j]] = true; cur[keys[i]] = nos[j];
+        rec(i + 1);
+        used[nos[j]] = false; cur[keys[i]] = 0;
+      }
+    }
+    rec(0);
+  }
+
+  /** 全列挙して、全フラグが真（＝制約を満たす）配置の数を数える（順序は見ない、主語は見ない） */
+  function countFullSolutions(mode, cards) {
+    var n = 0;
+    forEachPlacement(mode, cards, function (slots) {
+      if (isFullSatisfaction(evaluate(mode, cards, slots), mode)) n++;
+    });
+    return n;
+  }
+
+  /**
+   * PHP problem_generator::count_valid_solutions の移植。
+   * 主フラグが全部真で、さらに「同じ主語についての論証」であること（個別命題の subject_term が空でなく、すべて同じ）
+   * を解の条件にする。生成器の一意性（C9）はこの数で判定する。
+   */
+  function countValidSolutions(mode, cards) {
+    var byNo = indexCards(cards);
+    var n = 0;
+    forEachPlacement(mode, cards, function (slots) {
+      var keys = mode === 'compound' ? ['final_claim', 'middle', 'lower_fact'] : ['claim', 'fact'];
+      var subj = keys.map(function (k) {
+        var c = byNo[toInt(slots[k], 0)];
+        return c ? str(c.subject_term) : '';
+      });
+      if (subj[0] === '' || subj.some(function (s) { return s !== subj[0]; })) return;
+      if (isFullSatisfaction(evaluate(mode, cards, slots), mode)) n++;
+    });
+    return n;
+  }
+
+  return {
+    SINGLE_SLOTS: SINGLE_SLOTS,
+    COMPOUND_SLOTS: COMPOUND_SLOTS,
+    FLAG_ORDER: FLAG_ORDER,
+    SLOT_LABELS: SLOT_LABELS,
+    FLAG_LABELS: FLAG_LABELS,
+    FLAG_HINTS: FLAG_HINTS,
+    normalizeTerm: normalizeTerm,
+    slotKeys: slotKeys,
+    evaluate: evaluate,
+    isFullSatisfaction: isFullSatisfaction,
+    orderOk: orderOk,
+    judge: judge,
+    correctSlots: correctSlots,
+    isComplete: isComplete,
+    forEachPlacement: forEachPlacement,
+    countFullSolutions: countFullSolutions,
+    countValidSolutions: countValidSolutions
+  };
+})();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = TRI;
+}
+
+</script>
+
+<!-- 自動生成：tools/build_gas.js が src/generator.js と data/seed/ から作る。手で編集しない。 -->
+<script>
+var TRI_SEEDS = {"動物":{"genre":"動物","generated_by":"Claude (Claude Code session, 2026-05-31, prompt v1)","review_status":"draft (未レビュー)","subjects":[{"name":"カラス","tags":"鳥類,雑食,肉食,飛行,卵生,小型"},{"name":"犬","tags":"哺乳類,雑食,肉食,陸上,胎生,家畜,中型"},{"name":"猫","tags":"哺乳類,肉食,陸上,胎生,家畜,夜行性,小型"},{"name":"ペンギン","tags":"鳥類,肉食,水生,卵生,寒冷,中型"},{"name":"コウモリ","tags":"哺乳類,肉食,飛行,胎生,夜行性,小型"},{"name":"イルカ","tags":"哺乳類,肉食,水生,胎生,知能,大型"},{"name":"サメ","tags":"魚類,肉食,水生,卵生,大型"},{"name":"ライオン","tags":"哺乳類,肉食,陸上,胎生,群居,大型"},{"name":"ハチ","tags":"昆虫,雑食,飛行,卵生,群居,有毒,極小"},{"name":"アリ","tags":"昆虫,雑食,陸上,卵生,群居,極小"},{"name":"ヘビ","tags":"爬虫類,肉食,陸上,卵生,有毒,中型"},{"name":"カエル","tags":"両生類,肉食,水陸両用,卵生,変態,小型"},{"name":"ウサギ","tags":"哺乳類,草食,陸上,胎生,家畜,小型"},{"name":"馬","tags":"哺乳類,草食,陸上,胎生,家畜,大型"},{"name":"ゾウ","tags":"哺乳類,草食,陸上,胎生,群居,大型"},{"name":"パンダ","tags":"哺乳類,草食,陸上,胎生,大型"},{"name":"ハト","tags":"鳥類,雑食,飛行,卵生,群居,小型"}],"warrants":[{"p":"鳥である","q":"羽毛を持つ","required_tags":"鳥類"},{"p":"哺乳類である","q":"親が乳で子を育てる","required_tags":"哺乳類"},{"p":"魚類である","q":"エラ呼吸する","required_tags":"魚類"},{"p":"昆虫である","q":"足が6本ある","required_tags":"昆虫"},{"p":"爬虫類である","q":"うろこを持つ","required_tags":"爬虫類"},{"p":"両生類である","q":"成長で姿が変わる","required_tags":"両生類"},{"p":"恒温動物である","q":"体温が一定に保たれる","required_tags":"哺乳類"},{"p":"変温動物である","q":"気温で体温が変わる","required_tags":"爬虫類"},{"p":"卵生である","q":"卵から生まれる","required_tags":"卵生"},{"p":"胎生である","q":"親の体内で育つ","required_tags":"胎生"},{"p":"肉食動物である","q":"鋭い歯を持つ","required_tags":"肉食"},{"p":"草食動物である","q":"植物を食べる","required_tags":"草食"},{"p":"雑食動物である","q":"植物と動物の両方を食べる","required_tags":"雑食"},{"p":"プランクトンを食べる","q":"水中で生活する","required_tags":"水生"},{"p":"反芻動物である","q":"複数の胃を持つ","required_tags":"反芻"},{"p":"翼を持つ","q":"空を移動できる","required_tags":"飛行"},{"p":"ひれを持つ","q":"水中を泳げる","required_tags":"水生"},{"p":"鋭い爪を持つ","q":"獲物を捕らえやすい"},{"p":"足が速い","q":"狩りや逃走で有利になる"},{"p":"体が大きい","q":"天敵が少ない","required_tags":"大型"},{"p":"角を持つ","q":"防御や争いに使える"},{"p":"夜行性である","q":"暗闇でも活動できる","required_tags":"夜行性"},{"p":"視覚が発達している","q":"遠くを見ることができる"},{"p":"嗅覚が鋭い","q":"匂いで獲物や仲間を見つけられる"},{"p":"聴覚が鋭い","q":"小さな音も聞き取れる"},{"p":"水中で暮らす","q":"水中の食べ物を取れる","required_tags":"水生"},{"p":"砂漠で暮らす","q":"水分を効率よく使う体を持つ","required_tags":"砂漠"},{"p":"極地で暮らす","q":"寒さに耐える体のしくみがある","required_tags":"寒冷"},{"p":"森林で暮らす","q":"木々を移動の足場にする","required_tags":"森林"},{"p":"草原で暮らす","q":"広い視界で外敵を察知できる","required_tags":"草原"},{"p":"群れで生活する","q":"仲間と協力できる","required_tags":"群居"},{"p":"単独で生活する","q":"自分だけで獲物を捕る必要がある","required_tags":"単独"},{"p":"親が子を世話する","q":"子の生存率が高まる"},{"p":"冬眠する","q":"寒い時期は活動をやめる","required_tags":"冬眠"},{"p":"渡りをする","q":"季節で生息場所を変える","required_tags":"飛行"},{"p":"家畜化されている","q":"人間に役立てられてきた","required_tags":"家畜"},{"p":"ペットとして飼われる","q":"人間と暮らせるよう慣れている","required_tags":"家畜"},{"p":"絶滅危惧種である","q":"保護の対象となる"},{"p":"益虫である","q":"人間の生活に役立つ","required_tags":"昆虫"},{"p":"害虫である","q":"駆除の対象になる","required_tags":"昆虫"},{"p":"毒を持つ","q":"獲物や敵に対して有利になる","required_tags":"有毒"},{"p":"鮮やかな色をしている","q":"毒や危険のサインであることがある"},{"p":"音や声でコミュニケーションする","q":"仲間と情報を伝え合える"},{"p":"知能が高い","q":"道具を使うことがある"},{"p":"社会性が高い","q":"役割分担をして暮らせる"},{"p":"心臓を持つ","q":"血液を体に巡らせる"},{"p":"肺呼吸する","q":"陸上で生活できる"},{"p":"皮膚呼吸する","q":"湿った環境で暮らす必要がある"},{"p":"えら呼吸する","q":"水中の酸素を取り込める"},{"p":"骨格を持つ","q":"体の形を保つことができる"},{"p":"外骨格を持つ","q":"脱皮することで成長する","required_tags":"昆虫"},{"p":"学習能力がある","q":"経験から行動を変えることができる","required_tags":"哺乳類,鳥類"},{"p":"親をまねて育つ","q":"生きるための技術を身につける"},{"p":"哺乳類である","q":"体毛を持つことが多い","required_tags":"哺乳類"},{"p":"鳥類である","q":"くちばしを持つ","required_tags":"鳥類"},{"p":"魚類である","q":"うろこを持つことが多い","required_tags":"魚類"},{"p":"節足動物である","q":"体が節に分かれている","required_tags":"昆虫"},{"p":"巣を作る","q":"安全な場所で子を育てる"},{"p":"縄張りを持つ","q":"他の個体を遠ざける行動をする"},{"p":"求愛行動をする","q":"繁殖相手を選ぶしくみがある"},{"p":"長い首を持つ","q":"高い場所の食べ物を取れる","required_tags":"大型"},{"p":"水かきがある","q":"水中で速く泳げる"},{"p":"鋭いくちばしを持つ","q":"硬い殻や肉を破ることができる"},{"p":"毛が厚い","q":"寒さから身を守れる"},{"p":"汗をかくしくみがある","q":"体温を調節できる"},{"p":"空を移動できる","q":"鳥として分類されることが多い","required_tags":"飛行"},{"p":"体毛を持つ","q":"寒冷地でも活動できる","required_tags":"哺乳類"},{"p":"鋭い歯を持つ","q":"他の動物を捕食する"},{"p":"複数の胃を持つ","q":"草を効率よく消化できる","required_tags":"反芻"},{"p":"暗闇でも活動できる","q":"昼間の天敵を避けられる"},{"p":"水中を泳げる","q":"海洋で生活できる","required_tags":"水生"},{"p":"仲間と協力できる","q":"集団で外敵から身を守れる"},{"p":"寒い時期は活動をやめる","q":"食料不足の冬を乗り切れる"},{"p":"子の生存率が高まる","q":"種が安定して存続する"},{"p":"周囲に溶け込める","q":"敵に見つかりにくい"}]},"アニメ・漫画":{"genre":"アニメ・漫画","generated_by":"Claude (Claude Code session, 2026-05-31, prompt v1)","review_status":"draft (未レビュー)","subjects":[{"name":"ドラえもん","tags":"連載,SF,コメディ"},{"name":"ワンピース","tags":"連載,冒険,バトル"},{"name":"となりのトトロ","tags":"映画,ファンタジー"},{"name":"サザエさん","tags":"連載,日常,コメディ"},{"name":"名探偵コナン","tags":"連載,ミステリー"},{"name":"鬼滅の刃","tags":"連載,バトル,ファンタジー"},{"name":"クレヨンしんちゃん","tags":"連載,日常,コメディ"},{"name":"ドラゴンボール","tags":"連載,バトル,SF"},{"name":"ガンダム","tags":"連載,SF,メカ"},{"name":"けいおん!","tags":"連載,日常,音楽"},{"name":"進撃の巨人","tags":"連載,バトル,SF"},{"name":"千と千尋の神隠し","tags":"映画,ファンタジー"},{"name":"君の名は。","tags":"映画,ロマンス"},{"name":"AKIRA","tags":"映画,SF,バトル"},{"name":"新世紀エヴァンゲリオン","tags":"連載,SF,メカ"},{"name":"NARUTO","tags":"連載,バトル,ファンタジー"}],"warrants":[{"p":"キャラが魅力的","q":"ファンが増える"},{"p":"ストーリーが奥深い","q":"何度も見返したくなる"},{"p":"長期連載","q":"愛着が湧く"},{"p":"ギャグが面白い","q":"元気が出る"},{"p":"アクションシーンが迫力ある","q":"興奮する"},{"p":"感動的な場面がある","q":"涙を誘う"},{"p":"SF設定","q":"想像力が刺激される","required_tags":"SF"},{"p":"日常を描く","q":"親近感を感じる"},{"p":"ファンタジー世界","q":"非日常を楽しめる","required_tags":"ファンタジー"},{"p":"学園が舞台","q":"共感しやすい","required_tags":"日常,連載"},{"p":"スポーツが題材","q":"努力の価値を感じる","required_tags":"連載"},{"p":"料理が題材","q":"食欲が刺激される"},{"p":"ミステリー要素","q":"推理を楽しめる","required_tags":"ミステリー"},{"p":"アドベンチャー要素","q":"冒険心がくすぐられる"},{"p":"兄弟姉妹がテーマ","q":"家族について考えさせられる"},{"p":"友情を描く","q":"仲間の大切さを学べる"},{"p":"恋愛要素がある","q":"ときめきを感じる","required_tags":"ロマンス,日常"},{"p":"動物が主役","q":"かわいさで癒される"},{"p":"ロボットが活躍する","q":"メカ好きが楽しめる","required_tags":"メカ"},{"p":"魔法が登場する","q":"不思議さに惹かれる","required_tags":"ファンタジー"},{"p":"戦闘シーン重視","q":"スピード感がある","required_tags":"バトル"},{"p":"心理描写が細かい","q":"登場人物に共感できる"},{"p":"群像劇","q":"多面的な物語が楽しめる"},{"p":"主人公が成長する","q":"自分も励まされる"},{"p":"悪役にも背景がある","q":"物語に深みが出る"},{"p":"音楽が印象的","q":"場面を思い出せる"},{"p":"作画が美しい","q":"映像として楽しめる"},{"p":"季節感がある","q":"情緒を味わえる"},{"p":"日本文化が描かれる","q":"伝統に触れられる"},{"p":"海外文化が描かれる","q":"世界が広がる"},{"p":"歴史が題材","q":"学びにもなる","required_tags":"連載"},{"p":"未来が舞台","q":"想像が膨らむ"},{"p":"過去が舞台","q":"当時の生活を知れる"},{"p":"時間移動が登場","q":"タイムパラドックスが面白い"},{"p":"並行世界がある","q":"「もしも」を楽しめる"},{"p":"異能力が登場","q":"バトルが盛り上がる","required_tags":"バトル,ファンタジー"},{"p":"キャラの過去が掘り下げられる","q":"物語に厚みが出る"},{"p":"オリジナル世界","q":"設定の独自性がある"},{"p":"原作付きの作品","q":"既存ファンも安心して見られる"},{"p":"完全オリジナル","q":"結末が読めない"},{"p":"短期完結","q":"一気に楽しめる"},{"p":"続編が出る","q":"長く楽しめる"},{"p":"劇場版が制作される","q":"大画面で迫力を味わえる"},{"p":"国民的アニメ","q":"世代を超えて楽しめる"},{"p":"教育番組の枠","q":"親子で見られる"},{"p":"深夜枠","q":"大人向けの表現が可能になる"},{"p":"キッズ向け","q":"子どもが安心して見られる"},{"p":"グッズ展開がある","q":"作品世界に浸れる"},{"p":"コラボカフェがある","q":"リアルで作品を体験できる"},{"p":"テーマソングがヒットする","q":"一般にも広まる"},{"p":"声優の演技が際立つ","q":"キャラに命が宿る"},{"p":"キャラデザインが洗練","q":"アイコン的に親しまれる"},{"p":"アニメ化されている","q":"動きで物語が楽しめる"},{"p":"漫画原作","q":"コマ割りの妙が活きる"},{"p":"ライトノベル原作","q":"文章表現の魅力が下敷きにある"},{"p":"オープニング映像が印象的","q":"毎週の楽しみになる"},{"p":"エンディングが余韻を残す","q":"物語の続きを想像させる"},{"p":"キャラ同士の関係が複雑","q":"ドラマ性が高まる"},{"p":"世界観が独特","q":"没入感が強い"},{"p":"テーマが普遍的","q":"時代を超えて愛される"},{"p":"笑える場面と泣ける場面が共存する","q":"感情が揺さぶられる"},{"p":"子供向けのメッセージが明確","q":"道徳的価値が伝えられる"},{"p":"ハードな描写がある","q":"大人の鑑賞に堪える"},{"p":"海外でも人気","q":"国境を越えて愛される"},{"p":"ジブリ作品","q":"高い芸術性で評価される"},{"p":"細部までこだわった作画","q":"何度見ても発見がある"},{"p":"続編構想が明らかにされる","q":"ファンの期待が続く"},{"p":"ファンが増える","q":"グッズが売れる"},{"p":"何度も見返したくなる","q":"リピーターが定着する"},{"p":"愛着が湧く","q":"国民的人気を獲得する"},{"p":"興奮する","q":"話題になりやすい"},{"p":"涙を誘う","q":"記憶に残る"},{"p":"親近感を感じる","q":"幅広い世代に共感される"},{"p":"世代を超えて楽しめる","q":"文化として定着する"},{"p":"国境を越えて愛される","q":"日本文化の発信源になる"},{"p":"道徳的価値が伝えられる","q":"親世代から支持される"}]},"食べ物":{"genre":"食べ物","generated_by":"Claude (Claude Code session, 2026-05-31, prompt v1)","review_status":"draft (未レビュー)","subjects":[{"name":"ラーメン","tags":"通年,主食"},{"name":"寿司","tags":"通年,海産"},{"name":"カレー","tags":"通年,主食"},{"name":"おにぎり","tags":"通年,主食"},{"name":"たこやき","tags":"通年,軽食"},{"name":"ピザ","tags":"通年,主食"},{"name":"ハンバーガー","tags":"通年,軽食"},{"name":"すいか","tags":"夏限定,果物,季節限定"},{"name":"メロン","tags":"夏限定,果物,季節限定"},{"name":"おでん","tags":"冬向き,汁物,季節限定"},{"name":"焼き肉","tags":"通年,主食"},{"name":"てんぷら","tags":"通年,副菜"},{"name":"そば","tags":"通年,主食"},{"name":"うどん","tags":"通年,主食"},{"name":"餃子","tags":"通年,副菜"}],"warrants":[{"p":"出汁がきいている","q":"旨味がある"},{"p":"温かい料理","q":"冬に向く"},{"p":"冷たい料理","q":"夏に向く","required_tags":"夏限定,果物,海産"},{"p":"甘い","q":"デザートに合う"},{"p":"辛い","q":"食欲を刺激する"},{"p":"油を使う","q":"こくが出る"},{"p":"さっぱりしている","q":"食後感が軽い"},{"p":"油っぽい","q":"満腹感が長続きする"},{"p":"麺料理","q":"すすって食べる","required_tags":"主食"},{"p":"米料理","q":"主食になる","required_tags":"主食"},{"p":"肉料理","q":"タンパク質が豊富","required_tags":"主食"},{"p":"魚料理","q":"健康的とされる","required_tags":"海産"},{"p":"揚げ物","q":"サクサクの食感が楽しめる","required_tags":"主食,副菜"},{"p":"焼き物","q":"香ばしい香りがある"},{"p":"蒸し物","q":"素材の味が活きる"},{"p":"煮込み料理","q":"味がしっかりしみる"},{"p":"鍋料理","q":"大勢で囲める"},{"p":"一品料理","q":"手軽に食べられる"},{"p":"定食スタイル","q":"バランスよく食べられる"},{"p":"漬物","q":"ご飯が進む"},{"p":"スープがある","q":"体が温まる"},{"p":"デザート","q":"食事の締めくくりになる","required_tags":"果物"},{"p":"朝食向き","q":"元気の源になる"},{"p":"軽食","q":"小腹を満たせる"},{"p":"屋台で売られる","q":"祭りで楽しめる"},{"p":"ファーストフード","q":"短時間で食べられる"},{"p":"高級料理","q":"特別な日に味わいたい"},{"p":"家庭料理","q":"親しみを感じる"},{"p":"郷土料理","q":"地域の文化が伝わる"},{"p":"季節限定","q":"その時期だけの楽しみがある","required_tags":"季節限定"},{"p":"保存食","q":"長期間保存できる"},{"p":"発酵食品","q":"体に良いとされる"},{"p":"自然食品","q":"添加物が少ない"},{"p":"インスタント食品","q":"すぐに食べられる"},{"p":"自家製","q":"自分好みに作れる"},{"p":"手作り料理","q":"思いやりが感じられる"},{"p":"プロが作る","q":"完成度が高い"},{"p":"大量生産","q":"価格が手頃になる"},{"p":"レシピがシンプル","q":"初心者でも作れる"},{"p":"調理に時間がかかる","q":"手間に見合う美味しさがある"},{"p":"焼くだけで食べられる","q":"調理が簡単"},{"p":"切るだけで食べられる","q":"手間なく楽しめる"},{"p":"旬の食材を使う","q":"味が最高になる"},{"p":"地産地消","q":"鮮度が保たれる"},{"p":"海産物を使う","q":"海の幸を味わえる","required_tags":"海産"},{"p":"山の幸を使う","q":"自然の恵みを感じる"},{"p":"国産食材","q":"安心して食べられる"},{"p":"輸入食材","q":"異国の味が楽しめる"},{"p":"ヘルシー","q":"健康志向の人に好まれる"},{"p":"カロリーが高い","q":"運動の前後に向く"},{"p":"塩分が控えめ","q":"血圧を気にする人に良い"},{"p":"食物繊維が豊富","q":"腸内環境を整える"},{"p":"タンパク質が多い","q":"筋肉作りに向く"},{"p":"ビタミンが豊富","q":"美容によい"},{"p":"ミネラルが豊富","q":"体調を整える"},{"p":"油分が少ない","q":"ダイエットによい"},{"p":"子どもに人気","q":"給食に出やすい"},{"p":"大人に人気","q":"居酒屋メニューに合う"},{"p":"和食","q":"健康的な食事として知られる"},{"p":"洋食","q":"ボリュームが楽しめる"},{"p":"中華","q":"食欲をそそる香りがある"},{"p":"エスニック","q":"異国情緒を味わえる"},{"p":"朝食の定番","q":"多くの家庭で食べられる","required_tags":"主食,軽食"},{"p":"夜食向き","q":"軽く食べられる"},{"p":"お弁当向き","q":"冷めても美味しい"},{"p":"旨味がある","q":"深い満足感が得られる"},{"p":"夏に向く","q":"食欲がない時でも食べやすい"},{"p":"タンパク質が豊富","q":"筋肉作りに役立つ"},{"p":"健康的とされる","q":"生活習慣病の予防につながる"},{"p":"ビタミンが摂れる","q":"体調を整えやすい"},{"p":"添加物が少ない","q":"安心して子供に与えられる"},{"p":"その時期だけの楽しみがある","q":"食事の時間が特別になる"},{"p":"腸内環境を整える","q":"美容にも効果が期待できる"},{"p":"地域の文化が伝わる","q":"観光資源として活用される"}]},"ゲーム":{"genre":"ゲーム","generated_by":"Claude (Claude Code session, 2026-05-31, prompt v1)","review_status":"draft (未レビュー)","subjects":[{"name":"スーパーマリオ","tags":"アクション,コンソール,ソロ,ストーリー"},{"name":"ドラゴンクエスト","tags":"RPG,コンソール,ストーリー,長編"},{"name":"ポケモン","tags":"RPG,コンソール,ストーリー,育成"},{"name":"テトリス","tags":"パズル,アーケード,ソロ"},{"name":"マインクラフト","tags":"クラフト,オープンワールド,協力可能,長編"},{"name":"ぷよぷよ","tags":"パズル,対戦,アーケード"},{"name":"人生ゲーム","tags":"ボードゲーム,パーティ"},{"name":"桃太郎電鉄","tags":"ボードゲーム,パーティ"},{"name":"スプラトゥーン","tags":"アクション,対戦,オンライン"},{"name":"どうぶつの森","tags":"シミュレーション,スローライフ,長編"},{"name":"パックマン","tags":"アクション,アーケード,ソロ"},{"name":"囲碁","tags":"ボードゲーム,戦略,対戦"},{"name":"将棋","tags":"ボードゲーム,戦略,対戦"},{"name":"トランプ","tags":"カード,パーティ"},{"name":"ジェンガ","tags":"パーティ,物理"},{"name":"ストリートファイター","tags":"格闘,アーケード,対戦"}],"warrants":[{"p":"対戦できる","q":"友達と盛り上がれる","required_tags":"対戦"},{"p":"操作が直感的","q":"とっつきやすい"},{"p":"ストーリーがある","q":"物語に引き込まれる","required_tags":"ストーリー"},{"p":"キャラクターを育てられる","q":"達成感がある","required_tags":"育成"},{"p":"やりこみ要素が多い","q":"長く遊べる","required_tags":"コンソール,RPG,長編"},{"p":"ボードゲームである","q":"家族で楽しめる","required_tags":"ボードゲーム"},{"p":"パズル要素がある","q":"頭を使う","required_tags":"パズル"},{"p":"短時間で1ゲーム終わる","q":"隙間時間に遊べる"},{"p":"ルールが単純","q":"初心者でも始めやすい"},{"p":"競技性が高い","q":"大会で楽しめる"},{"p":"オンライン対応","q":"遠くの人とも遊べる","required_tags":"オンライン"},{"p":"協力プレイができる","q":"仲間と達成感を共有できる","required_tags":"協力可能"},{"p":"レベル制を採用している","q":"段階的な上達を実感できる"},{"p":"経験値システムがある","q":"努力が数値で見える"},{"p":"アイテム要素がある","q":"戦略の幅が広がる"},{"p":"キャラに個性がある","q":"お気に入りを見つけやすい"},{"p":"世界観が独創的","q":"新鮮さを感じる"},{"p":"グラフィックが美しい","q":"没入感が高まる"},{"p":"BGMが印象的","q":"雰囲気が伝わる"},{"p":"効果音がリアル","q":"臨場感が増す"},{"p":"ゲーム速度が速い","q":"反射神経が試される"},{"p":"ターン制","q":"じっくり考えられる"},{"p":"リアルタイム制","q":"スピード感がある"},{"p":"課金要素がある","q":"遊び方の幅が広がる"},{"p":"無料で遊べる","q":"気軽に始められる"},{"p":"オフラインで遊べる","q":"ネット環境がなくてもよい"},{"p":"ランダム要素がある","q":"飽きずに遊べる"},{"p":"ステージ制","q":"段階的な目標がある","required_tags":"アクション,コンソール"},{"p":"オープンワールド","q":"自由に探索できる","required_tags":"オープンワールド"},{"p":"シミュレーション要素","q":"戦略性が高い","required_tags":"シミュレーション,オープンワールド"},{"p":"アクション要素","q":"動きの楽しさがある","required_tags":"アクション"},{"p":"RPGである","q":"育成と探索が楽しめる","required_tags":"RPG"},{"p":"パーティを組める","q":"仲間と協力できる"},{"p":"クラフト要素","q":"創造性を発揮できる","required_tags":"クラフト"},{"p":"工夫の余地がある","q":"リプレイ性が高まる"},{"p":"クリア後の要素が豊富","q":"エンディング後も遊べる"},{"p":"配信に向く","q":"視聴者と楽しめる"},{"p":"ローカル通信ができる","q":"その場で対戦できる"},{"p":"ボイスチャット対応","q":"仲間と連携しやすい"},{"p":"育成要素がある","q":"愛着が湧く"},{"p":"コレクション要素","q":"集める楽しみがある"},{"p":"ランキング機能","q":"競争心が刺激される"},{"p":"アバターを着せ替えられる","q":"自己表現ができる"},{"p":"e-スポーツ化されている","q":"プロを目指せる"},{"p":"教育的要素がある","q":"学習にもなる"},{"p":"反射神経を要する","q":"集中力が鍛えられる"},{"p":"パズルを解く","q":"論理的思考が育つ"},{"p":"戦略を立てる","q":"計画力が身につく","required_tags":"戦略"},{"p":"選択肢で物語が分岐する","q":"自分だけの体験ができる"},{"p":"隠し要素がある","q":"探索意欲が刺激される"},{"p":"実績システムがある","q":"やり込み目標ができる"},{"p":"季節イベントがある","q":"定期的に楽しみができる","required_tags":"オンライン,オープンワールド"},{"p":"アップデートが続く","q":"飽きずに長く遊べる"},{"p":"ユーザコミュニティが活発","q":"情報交換ができる"},{"p":"モディング可能","q":"自分でカスタマイズできる"},{"p":"レトロな雰囲気","q":"懐かしさを感じる"},{"p":"アーケード作品","q":"ゲームセンターで遊べる","required_tags":"アーケード"},{"p":"家庭用コンソール作品","q":"大画面で遊べる","required_tags":"コンソール"},{"p":"携帯ゲーム機作品","q":"どこでも遊べる"},{"p":"スマートフォン作品","q":"通勤通学でも遊べる"},{"p":"PC作品","q":"高画質で遊べる"},{"p":"VR対応","q":"没入感が極めて高い"},{"p":"AR対応","q":"現実と融合した体験ができる"},{"p":"音楽ゲームである","q":"リズム感が必要"},{"p":"パーティゲームである","q":"大人数で盛り上がれる","required_tags":"パーティ"},{"p":"リアルな物理挙動を使う","q":"本物のような動きが楽しめる","required_tags":"クラフト,オープンワールド"},{"p":"クリア時間が長い","q":"やり応えがある"},{"p":"とっつきやすい","q":"初心者でも始められる"},{"p":"長く遊べる","q":"継続的なファンを獲得する"},{"p":"物語に引き込まれる","q":"感情移入が深まる"},{"p":"友達と盛り上がれる","q":"人気が広がる"},{"p":"初心者でも始めやすい","q":"裾野が広がる"},{"p":"頭を使う","q":"思考力が鍛えられる"},{"p":"没入感が高まる","q":"世界観に浸れる"},{"p":"学習にもなる","q":"親が安心して与えられる"},{"p":"仲間と達成感を共有できる","q":"友情が深まる","required_tags":"協力可能"}]},"地理":{"genre":"地理","generated_by":"Claude (Claude Code session, 2026-05-31, prompt v1)","review_status":"draft (未レビュー)","subjects":[{"name":"富士山","tags":"山,自然地形,内陸,日本"},{"name":"東京","tags":"都市,首都,大都市,平野部,日本"},{"name":"奈良","tags":"都市,古都,内陸,日本"},{"name":"京都","tags":"都市,古都,内陸,日本"},{"name":"ハワイ","tags":"島,リゾート,海岸,熱帯"},{"name":"ニューヨーク","tags":"都市,海岸,大都市"},{"name":"エベレスト","tags":"山,自然地形,内陸,寒冷"},{"name":"ナイル川","tags":"川,自然地形"},{"name":"グランドキャニオン","tags":"峡谷,自然地形,内陸"},{"name":"サハラ砂漠","tags":"砂漠,自然地形,熱帯,内陸"},{"name":"北海道","tags":"地方,寒冷,海岸,日本"},{"name":"沖縄","tags":"島,リゾート,海岸,熱帯,日本,亜熱帯"},{"name":"パリ","tags":"都市,首都,内陸,大都市"},{"name":"ロンドン","tags":"都市,首都,川沿い,大都市"},{"name":"エジプト","tags":"国,熱帯,砂漠"},{"name":"シンガポール","tags":"都市,島,海岸,熱帯"},{"name":"北京","tags":"都市,首都,内陸,大都市"}],"warrants":[{"p":"首都である","q":"政治の中心になる","required_tags":"首都"},{"p":"観光地として有名","q":"多くの人が訪れる"},{"p":"山岳地帯","q":"標高が高い","required_tags":"山"},{"p":"平野部","q":"人口が集中する","required_tags":"平野部"},{"p":"海岸沿い","q":"漁業が盛ん","required_tags":"海岸"},{"p":"内陸である","q":"海から遠い","required_tags":"内陸"},{"p":"島である","q":"海に囲まれる","required_tags":"島"},{"p":"半島である","q":"三方を海に囲まれる","required_tags":"海岸"},{"p":"火山地帯","q":"温泉が湧く","required_tags":"火山"},{"p":"砂漠地帯","q":"降水量が少ない","required_tags":"砂漠"},{"p":"熱帯地域","q":"年中暑い","required_tags":"熱帯"},{"p":"寒帯地域","q":"冬が長い","required_tags":"寒冷"},{"p":"温帯地域","q":"四季がある"},{"p":"雪国である","q":"冬は雪が積もる","required_tags":"寒冷"},{"p":"雨が多い地域","q":"緑が豊か"},{"p":"古都である","q":"歴史的建造物が多い","required_tags":"古都"},{"p":"新興都市","q":"計画的な街並みになる","required_tags":"都市"},{"p":"港町","q":"海運が発達する","required_tags":"海岸"},{"p":"城下町","q":"歴史的城がある","required_tags":"古都"},{"p":"宿場町","q":"かつての街道筋にあたる","required_tags":"古都"},{"p":"大都市","q":"交通網が発達する","required_tags":"大都市"},{"p":"地方都市","q":"自然が近い","required_tags":"地方,地方都市"},{"p":"田園地帯","q":"農業が盛ん","required_tags":"平野部"},{"p":"工業地帯","q":"工場が多い","required_tags":"都市"},{"p":"商業地区","q":"店舗が密集する","required_tags":"都市"},{"p":"住宅街","q":"静かな環境になる","required_tags":"都市"},{"p":"学園都市","q":"大学が集まる","required_tags":"都市"},{"p":"城跡がある","q":"歴史を感じる"},{"p":"神社仏閣が多い","q":"信仰の場として知られる","required_tags":"古都"},{"p":"美術館がある","q":"文化に触れられる","required_tags":"都市"},{"p":"博物館がある","q":"歴史を学べる","required_tags":"都市"},{"p":"港がある","q":"国際交易の拠点になる","required_tags":"海岸"},{"p":"空港がある","q":"国際交通の拠点になる","required_tags":"都市"},{"p":"駅前である","q":"商業が発達する","required_tags":"都市"},{"p":"国立公園に指定","q":"自然が保護される","required_tags":"自然地形"},{"p":"世界遺産登録","q":"国際的に価値が認められる"},{"p":"国境近く","q":"異文化が交差する","required_tags":"国"},{"p":"山に囲まれる","q":"盆地気候になる","required_tags":"内陸"},{"p":"川沿い","q":"古くから集落が発達する","required_tags":"川沿い"},{"p":"湖がある","q":"水資源が豊富","required_tags":"内陸"},{"p":"海と山に挟まれる","q":"多様な地形を持つ","required_tags":"海岸"},{"p":"標高が高い","q":"涼しい気候になる","required_tags":"山"},{"p":"標高が低い","q":"暖かい気候になる"},{"p":"海に面する","q":"海産物が豊富","required_tags":"海岸"},{"p":"山が深い","q":"林業が盛ん","required_tags":"山"},{"p":"平地が広い","q":"大規模農業が可能","required_tags":"平野部"},{"p":"大河が流れる","q":"古来から農業の中心になる","required_tags":"川沿い"},{"p":"火山がある","q":"災害リスクと観光資源を併せ持つ","required_tags":"火山"},{"p":"地震が多い","q":"耐震建築が発達する"},{"p":"雪が多い","q":"雪かきが必要","required_tags":"寒冷"},{"p":"風が強い","q":"風力発電に向く"},{"p":"日照時間が長い","q":"太陽光発電に向く"},{"p":"冷涼な気候","q":"高原野菜が育つ","required_tags":"寒冷"},{"p":"温暖な気候","q":"果樹栽培が盛ん"},{"p":"北方に位置する","q":"寒冷適応の文化を持つ","required_tags":"寒冷"},{"p":"南方に位置する","q":"亜熱帯の文化を持つ","required_tags":"熱帯"},{"p":"大陸である","q":"多様な気候を含む","required_tags":"国"},{"p":"群島である","q":"海上の交易拠点になる","required_tags":"島"},{"p":"戦略的要地","q":"軍事的重要性が高い","required_tags":"国"},{"p":"人口密集地","q":"都市問題が起きやすい","required_tags":"大都市"},{"p":"過疎地","q":"公共サービスが減る","required_tags":"地方"},{"p":"産業発祥地","q":"経済成長を支えた歴史を持つ","required_tags":"都市"},{"p":"観光収入が大きい","q":"経済が観光に依存しがち","required_tags":"リゾート"},{"p":"農産物の名産地","q":"食ブランドが確立する","required_tags":"平野部"},{"p":"史跡が多い","q":"観光資源が豊か","required_tags":"古都"},{"p":"国際都市","q":"多言語が飛び交う","required_tags":"大都市"},{"p":"自然遺産が多い","q":"環境保護の対象になる","required_tags":"自然地形"},{"p":"政治の中心になる","q":"国際的な交流が活発になる","required_tags":"首都"},{"p":"多くの人が訪れる","q":"地域経済が潤う"},{"p":"標高が高い","q":"冷涼な気候で過ごしやすい","required_tags":"山"},{"p":"漁業が盛ん","q":"新鮮な海産物が手に入る","required_tags":"海岸"},{"p":"温泉が湧く","q":"観光資源として活用される","required_tags":"火山"},{"p":"歴史的建造物が多い","q":"文化的価値が高い","required_tags":"古都"},{"p":"海運が発達する","q":"国際貿易の拠点になる","required_tags":"海岸"},{"p":"交通網が発達する","q":"経済活動が盛んになる","required_tags":"大都市"},{"p":"異文化が交差する","q":"多文化共生の風土ができる","required_tags":"国"},{"p":"国際的に価値が認められる","q":"観光客が世界中から訪れる"}]},"自然・天体":{"genre":"自然・天体","generated_by":"Claude (Claude Code session, 2026-05-31, prompt v1)","review_status":"draft (未レビュー)","subjects":[{"name":"月","tags":"衛星,天体,天体現象主体"},{"name":"太陽","tags":"恒星,天体,光源,天体現象主体"},{"name":"海","tags":"水域,地球"},{"name":"川","tags":"水域,地球,流体"},{"name":"虹","tags":"光学,大気現象"},{"name":"雪","tags":"気象,寒冷,大気現象,降水,気象現象"},{"name":"雷","tags":"気象,大気現象,放電,気象現象"},{"name":"星","tags":"恒星,天体,天体現象主体"},{"name":"地球","tags":"惑星,天体,天体現象主体,岩石惑星,生命惑星"},{"name":"火星","tags":"惑星,天体,天体現象主体,岩石惑星"},{"name":"土星","tags":"惑星,天体,天体現象主体,ガス惑星"},{"name":"太陽系","tags":"天体集団,天体"},{"name":"ブラックホール","tags":"特殊天体,天体"},{"name":"流星","tags":"天体現象,天体"},{"name":"北極","tags":"地域,寒冷,地球"},{"name":"南極","tags":"地域,寒冷,地球"}],"warrants":[{"p":"恒星である","q":"自ら光を発する","required_tags":"恒星"},{"p":"惑星である","q":"太陽の周りを公転する","required_tags":"惑星"},{"p":"衛星である","q":"惑星の周りを回る","required_tags":"衛星"},{"p":"液体である","q":"流れる性質を持つ","required_tags":"水域"},{"p":"固体である","q":"形が保たれる","required_tags":"惑星,地球"},{"p":"気体である","q":"自由に広がる","required_tags":"大気現象,光源"},{"p":"光を放つ","q":"暗闇で見える","required_tags":"光源"},{"p":"反射する","q":"別の光源を反射する","required_tags":"天体"},{"p":"自転する","q":"昼夜ができる","required_tags":"天体"},{"p":"公転する","q":"季節ができる","required_tags":"惑星"},{"p":"大気を持つ","q":"生命の可能性が高まる","required_tags":"岩石惑星"},{"p":"重力が強い","q":"物体を引き寄せる","required_tags":"天体"},{"p":"磁場を持つ","q":"宇宙線から守られる","required_tags":"惑星"},{"p":"温度が高い","q":"気体が多くなる","required_tags":"恒星,惑星"},{"p":"温度が低い","q":"固体が多くなる","required_tags":"惑星"},{"p":"雲ができる","q":"雨が降る可能性が高まる","required_tags":"気象現象"},{"p":"水蒸気がある","q":"雲ができる","required_tags":"気象現象"},{"p":"海がある","q":"蒸発と降水のサイクルがある","required_tags":"地球"},{"p":"川がある","q":"水の流れがある","required_tags":"地球"},{"p":"雪が降る","q":"気温が低い","required_tags":"降水"},{"p":"雨が降る","q":"大気中の水分が凝結している","required_tags":"降水"},{"p":"雷が鳴る","q":"大気中で放電が起きている","required_tags":"放電"},{"p":"虹ができる","q":"太陽光が水滴で屈折している","required_tags":"気象現象"},{"p":"流れ星である","q":"大気圏に物体が突入している","required_tags":"天体現象"},{"p":"月食である","q":"地球が太陽光を遮っている","required_tags":"天体現象"},{"p":"日食である","q":"月が太陽を遮っている","required_tags":"天体現象"},{"p":"北極にある","q":"寒冷で氷に覆われる","required_tags":"地域"},{"p":"南極にある","q":"大陸の上に氷床がある","required_tags":"地域"},{"p":"赤道近くにある","q":"太陽光が直接当たる","required_tags":"地球"},{"p":"高緯度にある","q":"太陽光が斜めに当たる","required_tags":"地球"},{"p":"太陽からの距離が遠い","q":"表面温度が低い","required_tags":"惑星"},{"p":"太陽からの距離が近い","q":"表面温度が高い","required_tags":"惑星"},{"p":"大きい天体","q":"重力で球形になる","required_tags":"天体"},{"p":"小さい天体","q":"形が不規則になりやすい","required_tags":"天体"},{"p":"古い星","q":"重元素が豊富になっている","required_tags":"恒星"},{"p":"若い星","q":"高温で明るい","required_tags":"恒星"},{"p":"銀河を構成する","q":"多数の星が集まっている","required_tags":"銀河系"},{"p":"ブラックホールがある","q":"強い重力で周囲を歪める","required_tags":"特殊天体"},{"p":"超新星爆発が起きる","q":"大量の物質が放出される","required_tags":"恒星"},{"p":"雷が落ちる","q":"大気の電位差が原因になっている","required_tags":"気象現象"},{"p":"火山が噴火する","q":"マグマが地表に出る","required_tags":"地球"},{"p":"地震が起きる","q":"地殻が動いている","required_tags":"地球"},{"p":"津波が発生する","q":"海底で大きな揺れがある","required_tags":"地球"},{"p":"台風が発生する","q":"海水温が高くなっている","required_tags":"気象現象"},{"p":"季節が変わる","q":"地球の傾きが影響している","required_tags":"惑星"},{"p":"太陽が昇る","q":"地球の自転による現象である","required_tags":"天体"},{"p":"月が満ち欠けする","q":"月の位置が変わっている","required_tags":"衛星"},{"p":"潮の満ち引きがある","q":"月の重力が影響している","required_tags":"地球"},{"p":"オーロラが出る","q":"太陽風が大気と相互作用している","required_tags":"惑星"},{"p":"隕石が落ちる","q":"宇宙の物体が地球に到達している","required_tags":"天体現象"},{"p":"大気がある","q":"生命が存在しやすい","required_tags":"岩石惑星"},{"p":"二酸化炭素が多い","q":"温室効果が強まる","required_tags":"岩石惑星"},{"p":"オゾン層がある","q":"紫外線から守られる","required_tags":"生命惑星"},{"p":"海が広い","q":"気候を安定させる","required_tags":"地球"},{"p":"氷河期である","q":"全球的に気温が低い","required_tags":"地球"},{"p":"温暖期である","q":"全球的に気温が高い","required_tags":"地球"},{"p":"雨季である","q":"降水量が多い","required_tags":"気象"},{"p":"乾季である","q":"降水量が少ない","required_tags":"気象"},{"p":"夜空が暗い","q":"街灯が少ない地域である","required_tags":"地球"},{"p":"星がよく見える","q":"大気が澄んでいる","required_tags":"地球"},{"p":"嵐が来る","q":"気圧が低くなっている","required_tags":"気象"},{"p":"太陽光が当たる","q":"光合成が可能になる","required_tags":"天体"},{"p":"地球温暖化が進む","q":"海面が上昇する","required_tags":"地球"},{"p":"化石燃料を使う","q":"CO2排出が増える","required_tags":"地球"},{"p":"再生可能エネルギーを使う","q":"環境負荷が少なくなる","required_tags":"地球"},{"p":"二酸化炭素を吸収する植物が多い","q":"大気のCO2が抑えられる","required_tags":"地球"},{"p":"自ら光を発する","q":"周囲の惑星に影響を与える","required_tags":"恒星"},{"p":"太陽の周りを公転する","q":"生命を育む可能性がある","required_tags":"岩石惑星"},{"p":"惑星の周りを回る","q":"潮の満ち引きを引き起こす","required_tags":"衛星"},{"p":"自由に広がる","q":"大気を形成する","required_tags":"大気現象"},{"p":"流れる性質を持つ","q":"地形を侵食して形を変える","required_tags":"水域"},{"p":"季節ができる","q":"動植物の生活サイクルが形成される","required_tags":"岩石惑星"},{"p":"生命の可能性が高まる","q":"多様な生態系が成立する","required_tags":"生命惑星"},{"p":"マグマが地表に出る","q":"新しい大地が作られる","required_tags":"地球"},{"p":"地殻が動いている","q":"長期的に地形が変化する","required_tags":"地球"}]},"人物・キャラクター":{"genre":"人物・キャラクター","generated_by":"Claude (Claude Code session, 2026-05-31, prompt v1)","review_status":"draft (未レビュー)","subjects":[{"name":"ソクラテス","tags":"哲学者,古代,思想家,実在,理性派"},{"name":"エジソン","tags":"発明家,科学者,近代,実在"},{"name":"リンカーン","tags":"政治家,近代,アメリカ,実在"},{"name":"シンデレラ","tags":"架空,西洋,童話,主人公,心優しい"},{"name":"ピノキオ","tags":"架空,西洋,童話,主人公"},{"name":"レオナルド・ダ・ヴィンチ","tags":"芸術家,科学者,中世,実在"},{"name":"アインシュタイン","tags":"科学者,近代,実在,理性派"},{"name":"清少納言","tags":"作家,日本,平安,女性,実在"},{"name":"聖徳太子","tags":"政治家,日本,古代,実在"},{"name":"坂本龍馬","tags":"政治家,日本,幕末,実在"},{"name":"福沢諭吉","tags":"思想家,教育者,作家,日本,近代,実在"},{"name":"夏目漱石","tags":"作家,日本,近代,実在"},{"name":"宮沢賢治","tags":"作家,詩人,日本,近代,実在"}],"warrants":[{"p":"偉人である","q":"歴史に名を残す","required_tags":"実在"},{"p":"発明家である","q":"新しいものを作り出す","required_tags":"発明家"},{"p":"科学者である","q":"真理を追究する","required_tags":"科学者"},{"p":"政治家である","q":"国を治める仕事に関わる","required_tags":"政治家"},{"p":"軍人である","q":"戦争に関わる","required_tags":"軍人"},{"p":"哲学者である","q":"思考を深く掘り下げる","required_tags":"哲学者"},{"p":"芸術家である","q":"作品を残す","required_tags":"芸術家"},{"p":"作家である","q":"文章で世界を描く","required_tags":"作家"},{"p":"詩人である","q":"言葉で感動を表現する","required_tags":"詩人"},{"p":"王族である","q":"国を象徴する役割を持つ","required_tags":"王族"},{"p":"革命家である","q":"古い体制を変える","required_tags":"政治家"},{"p":"教育者である","q":"人を育てる","required_tags":"教育者"},{"p":"医師である","q":"病を治す","required_tags":"医師"},{"p":"看護師である","q":"患者を支える","required_tags":"看護師"},{"p":"探検家である","q":"未知の土地を訪れる","required_tags":"探検家"},{"p":"冒険家である","q":"危険を冒して挑戦する","required_tags":"探検家"},{"p":"平和主義者である","q":"暴力に反対する","required_tags":"思想家"},{"p":"童話の主人公である","q":"物語で愛される","required_tags":"架空"},{"p":"架空のキャラである","q":"想像から生まれる","required_tags":"架空"},{"p":"実在の人物である","q":"史実に裏付けられる","required_tags":"実在"},{"p":"動物が擬人化されたキャラ","q":"子どもに親しまれる","required_tags":"架空"},{"p":"魔法を使うキャラ","q":"ファンタジー世界に住む","required_tags":"魔法"},{"p":"探偵キャラ","q":"事件を解決する","required_tags":"探偵"},{"p":"怪盗キャラ","q":"巧妙な手口を使う","required_tags":"架空"},{"p":"主役キャラ","q":"物語の中心に立つ","required_tags":"主人公"},{"p":"脇役キャラ","q":"主役を支える","required_tags":"架空"},{"p":"悪役キャラ","q":"物語に緊張を生む","required_tags":"架空"},{"p":"師匠キャラ","q":"主人公を導く","required_tags":"架空"},{"p":"子どもキャラ","q":"純粋な視点を提供する","required_tags":"架空"},{"p":"大人キャラ","q":"経験を活かす","required_tags":"架空"},{"p":"老人キャラ","q":"知恵を授ける","required_tags":"架空"},{"p":"兄妹キャラ","q":"家族関係を描く","required_tags":"架空"},{"p":"友人キャラ","q":"主人公を励ます","required_tags":"架空"},{"p":"恋人キャラ","q":"物語に感情を加える","required_tags":"架空"},{"p":"強い力を持つ","q":"物語を動かす存在になる","required_tags":"魔法,異能,架空"},{"p":"困難に立ち向かう","q":"読者の共感を呼ぶ","required_tags":"架空,主人公"},{"p":"葛藤を抱える","q":"人間味が深まる","required_tags":"架空,主人公"},{"p":"成長する","q":"物語にカタルシスが生まれる","required_tags":"架空,主人公"},{"p":"何度も挫折する","q":"立ち直る姿が魅力になる","required_tags":"架空,主人公"},{"p":"自己犠牲する","q":"物語に重みが出る"},{"p":"仲間を大切にする","q":"信頼関係が描かれる"},{"p":"一人で戦う","q":"孤独な強さが際立つ","required_tags":"架空,主人公,理性派"},{"p":"喜怒哀楽が激しい","q":"感情移入しやすい","required_tags":"情熱派"},{"p":"冷静沈着","q":"緊迫した場面で頼られる","required_tags":"理性派,探偵"},{"p":"知略に優れる","q":"戦略で勝つ","required_tags":"探偵,魔法,架空"},{"p":"力に優れる","q":"物理的な勝負で強い"},{"p":"神話の登場人物","q":"民族の文化を象徴する","required_tags":"架空"},{"p":"古典文学の人物","q":"時代を超えて読まれる","required_tags":"架空"},{"p":"子どもの絵本の主人公","q":"教訓を伝える","required_tags":"架空"},{"p":"映画化された","q":"多くの人に親しまれる"},{"p":"アニメ化された","q":"ビジュアルで親しまれる"},{"p":"海外でも人気","q":"世界的な知名度がある"},{"p":"国民的人気","q":"教科書にも登場する"},{"p":"名言を残した","q":"後世に語り継がれる"},{"p":"改革を成し遂げた","q":"歴史を動かした","required_tags":"政治家,思想家"},{"p":"大発見をした","q":"学問の発展に寄与した","required_tags":"科学者,発明家,探検家"},{"p":"文化を残した","q":"後世に影響を与える"},{"p":"戦争を防いだ","q":"平和の象徴になる","required_tags":"政治家,軍人,思想家"},{"p":"戦争を起こした","q":"批判の対象になる","required_tags":"政治家,軍人"},{"p":"自伝を書いた","q":"思想が記録される"},{"p":"弟子を育てた","q":"教えが受け継がれる"},{"p":"質素な生活を送った","q":"高潔さで尊敬される"},{"p":"大胆な発言をした","q":"時代の風を吹き込む"},{"p":"子どもに優しい","q":"子どもの味方として描かれる"},{"p":"歴史に名を残す","q":"後世の人々に影響を与える","required_tags":"実在"},{"p":"新しいものを作り出す","q":"社会の発展に貢献する","required_tags":"発明家"},{"p":"真理を追究する","q":"人類の知識を進歩させる","required_tags":"科学者"},{"p":"国を治める仕事に関わる","q":"社会の方向を決める影響を持つ","required_tags":"政治家"},{"p":"作品を残す","q":"文化を豊かにする"},{"p":"病を治す","q":"多くの人の命を救う","required_tags":"医師"},{"p":"人を育てる","q":"次の世代の力になる","required_tags":"教育者"},{"p":"物語の中心に立つ","q":"読者の感情移入を集める","required_tags":"主人公"},{"p":"暴力に反対する","q":"社会の調和に寄与する","required_tags":"思想家"},{"p":"危険を冒して挑戦する","q":"新しい世界を開く","required_tags":"探検家"}]},"植物":{"genre":"植物","generated_by":"Claude (Claude Code session, 2026-05-31, prompt v1)","review_status":"draft (未レビュー)","subjects":[{"name":"サクラ","tags":"広葉樹,落葉樹,花木,日陰OK"},{"name":"バラ","tags":"低木,広葉樹,花木"},{"name":"ひまわり","tags":"草本,一年草,花"},{"name":"たんぽぽ","tags":"草本,多年草,花"},{"name":"サボテン","tags":"多肉植物,常緑"},{"name":"チューリップ","tags":"草本,球根,花"},{"name":"アサガオ","tags":"草本,一年草,つる植物,花"},{"name":"稲","tags":"草本,一年草,作物"},{"name":"トマト","tags":"草本,一年草,野菜"},{"name":"キュウリ","tags":"草本,一年草,野菜"},{"name":"スイートピー","tags":"草本,一年草,つる植物,花"},{"name":"コスモス","tags":"草本,一年草,花"},{"name":"ユリ","tags":"草本,球根,花"},{"name":"ぶどう","tags":"つる植物,広葉樹,果物"},{"name":"イチゴ","tags":"草本,多年草,果物"}],"warrants":[{"p":"光合成する","q":"酸素を出す"},{"p":"根を持つ","q":"水分を吸収できる"},{"p":"葉が広い","q":"効率的に日光を浴びる","required_tags":"広葉樹"},{"p":"花を咲かせる","q":"種子で繁殖できる","required_tags":"花"},{"p":"落葉樹である","q":"秋に葉が散る","required_tags":"落葉樹"},{"p":"常緑樹である","q":"年中緑のまま","required_tags":"常緑樹"},{"p":"針葉樹である","q":"寒冷地に強い","required_tags":"針葉樹"},{"p":"広葉樹である","q":"暖かい地域に多い","required_tags":"広葉樹"},{"p":"つる植物である","q":"何かに巻きついて伸びる","required_tags":"つる植物"},{"p":"食虫植物である","q":"昆虫を捕らえる仕組みがある","required_tags":"食虫植物"},{"p":"一年草である","q":"一年で生涯を終える","required_tags":"一年草"},{"p":"多年草である","q":"何年も繰り返し咲く","required_tags":"多年草"},{"p":"春に咲く","q":"寒さを乗り越える性質がある"},{"p":"夏に咲く","q":"強い日差しに耐える"},{"p":"秋に咲く","q":"短日条件で花芽が出る"},{"p":"冬に咲く","q":"寒さに強い"},{"p":"食用植物である","q":"人間の食料になる","required_tags":"野菜"},{"p":"観賞用である","q":"美しさで楽しまれる","required_tags":"花"},{"p":"香りが強い","q":"香水や食用に利用される"},{"p":"果実をつける","q":"動物に運ばれて種が広がる","required_tags":"果物"},{"p":"種が小さい","q":"風で運ばれやすい"},{"p":"種が大きい","q":"動物に運ばれやすい"},{"p":"接ぎ木できる","q":"品種改良がしやすい"},{"p":"挿し木で増える","q":"同じ性質を保てる"},{"p":"種で増える","q":"多様性が生まれる"},{"p":"球根で増える","q":"寒さに耐えやすい","required_tags":"球根"},{"p":"砂漠で育つ","q":"水分を蓄える仕組みがある","required_tags":"多肉植物"},{"p":"水辺で育つ","q":"湿気に強い"},{"p":"高山で育つ","q":"低温に強い","required_tags":"針葉樹,寒冷"},{"p":"熱帯で育つ","q":"暑さに強い","required_tags":"熱帯"},{"p":"寒帯で育つ","q":"寒さに強い"},{"p":"樹木である","q":"木材として利用される","required_tags":"樹木"},{"p":"草本である","q":"茎が柔らかい","required_tags":"草本"},{"p":"蔓を伸ばす","q":"立体的に成長する","required_tags":"つる植物"},{"p":"香りで虫を引き寄せる","q":"受粉を助けてもらえる"},{"p":"蜜を出す","q":"蜂や蝶が訪れる"},{"p":"棘を持つ","q":"動物から身を守れる","required_tags":"多肉植物,低木"},{"p":"毒を持つ","q":"食害を避けられる","required_tags":""},{"p":"薬用に使われる","q":"健康に役立つ","required_tags":"多年草,樹木"},{"p":"染料に使われる","q":"衣類を染められる"},{"p":"食物繊維が豊富","q":"腸内環境を整える","required_tags":"野菜,果物,作物"},{"p":"ビタミンが豊富","q":"体調を整える"},{"p":"カロリーが低い","q":"ダイエットに適する"},{"p":"でんぷんが多い","q":"エネルギー源になる"},{"p":"油を含む","q":"食用油の原料になる","required_tags":"作物"},{"p":"茎が太い","q":"風に倒れにくい"},{"p":"茎が細い","q":"しなやかに揺れる"},{"p":"根が深い","q":"土を保持する"},{"p":"根が浅い","q":"倒れやすい"},{"p":"葉が厚い","q":"乾燥に強い","required_tags":"多肉植物,常緑"},{"p":"葉が薄い","q":"日陰でも育つ","required_tags":"日陰OK"},{"p":"庭木として育てられる","q":"景観を彩る","required_tags":"樹木"},{"p":"街路樹として植えられる","q":"都市の緑化に役立つ"},{"p":"公園に多い","q":"市民の憩いになる"},{"p":"果樹園で育てられる","q":"果物を産する","required_tags":"果物"},{"p":"田畑で栽培される","q":"食料を供給する","required_tags":"作物"},{"p":"温室で育てる","q":"気候の影響を避けられる"},{"p":"国花である","q":"国民に親しまれる"},{"p":"県花である","q":"地域の象徴になる"},{"p":"古くから栽培される","q":"伝統的な品種が残る"},{"p":"新品種が作られる","q":"商業性が高まる"},{"p":"観葉植物である","q":"室内で楽しめる","required_tags":"常緑"},{"p":"花言葉がある","q":"贈り物に意味を込められる"},{"p":"季語になる","q":"俳句で詠まれる"},{"p":"食材として加工される","q":"多様な料理になる"},{"p":"油の原料になる","q":"工業利用される"},{"p":"紙の原料になる","q":"書物が作られる"},{"p":"酸素を出す","q":"地球環境に貢献する"},{"p":"水分を吸収できる","q":"乾燥した時期も生き残れる"},{"p":"種子で繁殖できる","q":"子孫を広範囲に残せる"},{"p":"秋に葉が散る","q":"冬の寒さを乗り切れる","required_tags":"落葉樹"},{"p":"年中緑のまま","q":"景観として楽しまれる","required_tags":"常緑樹"},{"p":"人間の食料になる","q":"農業の対象として栽培される"},{"p":"美しさで楽しまれる","q":"園芸文化が発達する"},{"p":"香水や食用に利用される","q":"商業価値が生まれる"},{"p":"健康に役立つ","q":"医療の補助として尊重される"},{"p":"動物に運ばれて種が広がる","q":"生息域が拡大する"}]},"スポーツ":{"genre":"スポーツ","generated_by":"Claude (Claude Code session, 2026-05-31, prompt v1)","review_status":"draft (未レビュー)","subjects":[{"name":"サッカー","tags":"球技,屋外,チーム"},{"name":"野球","tags":"球技,屋外,チーム,投擲"},{"name":"水泳","tags":"水中,個人,持久"},{"name":"バスケットボール","tags":"球技,屋内,チーム,跳躍"},{"name":"テニス","tags":"球技,屋外,ラケット"},{"name":"マラソン","tags":"走る,屋外,個人,持久"},{"name":"卓球","tags":"球技,屋内,ラケット"},{"name":"剣道","tags":"格闘,武道,屋内"},{"name":"柔道","tags":"格闘,武道,屋内"},{"name":"空手","tags":"格闘,武道,屋内"},{"name":"相撲","tags":"格闘,武道,屋外"},{"name":"バレーボール","tags":"球技,屋内,チーム,跳躍"},{"name":"バドミントン","tags":"球技,屋内,ラケット"},{"name":"ゴルフ","tags":"屋外,個人,クラブ"},{"name":"スキー","tags":"滑る,雪上,屋外,個人"},{"name":"スケート","tags":"滑る,氷上,屋内"},{"name":"ラグビー","tags":"球技,屋外,チーム,格闘"}],"warrants":[{"p":"チーム競技","q":"協力が必要","required_tags":"チーム"},{"p":"個人競技","q":"自己責任が大きい","required_tags":"個人"},{"p":"有酸素運動","q":"持久力が必要","required_tags":"持久"},{"p":"無酸素運動","q":"瞬発力が必要"},{"p":"ボールを使う","q":"ボール操作の技術が要る","required_tags":"球技"},{"p":"道具を使わない","q":"体が直接武器になる"},{"p":"ラケット競技","q":"道具の扱いが上達を左右する","required_tags":"ラケット"},{"p":"球技","q":"ボールを追う動きが激しい","required_tags":"球技"},{"p":"水中で行う","q":"体への負担が少ない","required_tags":"水中"},{"p":"雪上で行う","q":"寒冷地で発展した","required_tags":"雪上"},{"p":"室内競技","q":"天候の影響を受けない","required_tags":"屋内"},{"p":"屋外競技","q":"天候の影響を受ける","required_tags":"屋外"},{"p":"採点競技","q":"美しさが評価される"},{"p":"タイムを競う","q":"記録更新が目標になる","required_tags":"個人,走る,水中"},{"p":"得点を競う","q":"攻防が明確になる"},{"p":"格闘技","q":"体力と技術の両方が必要","required_tags":"格闘"},{"p":"武道","q":"礼儀作法が重んじられる","required_tags":"武道"},{"p":"走る競技","q":"持久力と速さが必要","required_tags":"走る"},{"p":"跳ぶ競技","q":"瞬発力が必要","required_tags":"跳躍"},{"p":"投げる競技","q":"上半身の筋力が必要","required_tags":"投擲"},{"p":"短時間で勝敗が決まる","q":"瞬発力勝負になる"},{"p":"長時間続く","q":"スタミナが必要"},{"p":"攻撃と守備に分かれる","q":"役割分担が大切"},{"p":"ポジションがある","q":"得意分野を活かせる","required_tags":"チーム"},{"p":"全員が同じ動きをする","q":"一体感が生まれる","required_tags":"チーム,武道,水中"},{"p":"反射神経が必要","q":"動体視力が大事"},{"p":"瞬発力が必要","q":"筋肉のキレが大事"},{"p":"持久力が必要","q":"心肺機能が大事"},{"p":"柔軟性が必要","q":"怪我の予防にもなる"},{"p":"バランス感覚が必要","q":"体幹の強さがものを言う"},{"p":"集中力が必要","q":"メンタルが結果に影響する"},{"p":"戦術が大事","q":"頭脳プレーが鍵になる"},{"p":"経験が物を言う","q":"練習の積み重ねが力になる"},{"p":"体格差が影響する","q":"階級制を採用することがある"},{"p":"男女で分かれる","q":"公平性が保たれる"},{"p":"年齢層を区切る","q":"同レベルで競い合える"},{"p":"アマチュアでも楽しめる","q":"健康増進に役立つ"},{"p":"プロ化されている","q":"観るスポーツとしても発展する"},{"p":"オリンピック種目","q":"世界で注目される"},{"p":"プロリーグがある","q":"経済効果も大きい"},{"p":"アジア発祥","q":"東洋的精神性がある"},{"p":"欧米発祥","q":"世界に競技人口が広い"},{"p":"古くから行われる","q":"伝統と文化が深い"},{"p":"比較的新しい","q":"ルールが時代に合わせやすい"},{"p":"用具が高額","q":"経済的なハードルがある"},{"p":"用具が安価","q":"誰でも始めやすい"},{"p":"観戦が面白い","q":"応援が盛り上がる"},{"p":"大会が頻繁にある","q":"出場機会が多い"},{"p":"屋外グラウンドが必要","q":"開催に場所を選ぶ","required_tags":"屋外"},{"p":"プールが必要","q":"施設が限られる"},{"p":"体育館で行う","q":"季節を問わず実施できる"},{"p":"リング上で行う","q":"観戦しやすい"},{"p":"コートで行う","q":"動きが見やすい"},{"p":"フィールドで行う","q":"走り回るプレーが多い"},{"p":"障害物を使う","q":"立体的な動きが楽しめる","required_tags":"陸上,屋外"},{"p":"水中で泳ぐ","q":"全身運動になる","required_tags":"水中"},{"p":"走り回る","q":"心拍数が上がる"},{"p":"ラリーが続く","q":"集中力の維持が必要"},{"p":"一発勝負","q":"プレッシャーに強くなる"},{"p":"試合時間が決まっている","q":"戦略が立てやすい"},{"p":"ピリオド制","q":"体力配分が鍵になる"},{"p":"トーナメント方式","q":"緊張感が高まる"},{"p":"ラウンドを重ねる","q":"体力の差が見える"},{"p":"監督がいる","q":"戦術面で助けられる"},{"p":"個人で挑む","q":"自己管理が問われる"},{"p":"協力が必要","q":"社会性が育つ"},{"p":"自己責任が大きい","q":"自律心が鍛えられる"},{"p":"メンタルが結果に影響する","q":"日常生活でも集中力が高まる"},{"p":"頭脳プレーが鍵になる","q":"戦略的思考力が育つ"},{"p":"体力と技術の両方が必要","q":"自己防衛にも役立つ"},{"p":"礼儀作法が重んじられる","q":"精神的成長にもつながる"},{"p":"応援が盛り上がる","q":"地域コミュニティが活性化する"},{"p":"世界で注目される","q":"国家的な誇りになる"},{"p":"心肺機能が大事","q":"全身の健康増進につながる"},{"p":"筋肉のキレが大事","q":"競技で勝利を掴みやすくなる"}]},"教科・学問":{"genre":"教科・学問","generated_by":"Claude (Claude Code session, 2026-05-31, prompt v1)","review_status":"draft (未レビュー)","subjects":[{"name":"算数","tags":"座学,計算,思考"},{"name":"国語","tags":"座学,語学,人文,読解"},{"name":"理科","tags":"座学,実験,観察"},{"name":"社会","tags":"座学,人文,暗記"},{"name":"英語","tags":"座学,語学"},{"name":"図工","tags":"実技,創作,工作"},{"name":"音楽","tags":"実技,演奏"},{"name":"体育","tags":"実技,運動"},{"name":"プログラミング","tags":"座学,IT,工作"},{"name":"家庭科","tags":"実技,生活"},{"name":"書道","tags":"実技,書字"},{"name":"技術科","tags":"実技,工作,IT"},{"name":"保健","tags":"座学,健康"},{"name":"道徳","tags":"価値教育,内面"},{"name":"生活科","tags":"体験,身近"},{"name":"外国語活動","tags":"座学,語学"},{"name":"総合学習","tags":"横断,探究"}],"warrants":[{"p":"計算が多い","q":"集中力が要る","required_tags":"計算"},{"p":"暗記が多い","q":"反復学習が効く","required_tags":"暗記"},{"p":"実験を伴う","q":"現象を体感できる","required_tags":"実験"},{"p":"楽器を使う","q":"演奏技術が必要","required_tags":"演奏"},{"p":"体を動かす","q":"健康増進になる","required_tags":"運動"},{"p":"創作活動","q":"表現力が育つ","required_tags":"創作"},{"p":"文章を読む","q":"読解力がつく","required_tags":"語学"},{"p":"文章を書く","q":"表現力が伸びる","required_tags":"語学"},{"p":"公式を使う","q":"論理的思考が育つ","required_tags":"計算"},{"p":"歴史を学ぶ","q":"過去から学べる","required_tags":"人文"},{"p":"地理を学ぶ","q":"世界の見方が広がる","required_tags":"人文"},{"p":"数式を扱う","q":"抽象的思考が必要","required_tags":"計算"},{"p":"母語を学ぶ","q":"言葉への感性が深まる","required_tags":"語学"},{"p":"外国語を学ぶ","q":"国際感覚が身につく","required_tags":"語学"},{"p":"自然を観察する","q":"科学的視点が育つ","required_tags":"実験"},{"p":"社会を学ぶ","q":"市民意識が育つ","required_tags":"人文"},{"p":"グループで作業する","q":"協調性が育つ","required_tags":"横断,座学"},{"p":"一人で取り組む","q":"自立心が育つ"},{"p":"テストで成績を測る","q":"達成度が見える"},{"p":"提出物がある","q":"計画性が育つ"},{"p":"教科書を使う","q":"体系的に学べる","required_tags":"座学"},{"p":"実技を伴う","q":"技能が身につく"},{"p":"プレゼン発表がある","q":"表現力が試される"},{"p":"ディベートを行う","q":"論理的議論ができる"},{"p":"フィールドワークがある","q":"現場感覚が育つ"},{"p":"ICTを使う","q":"デジタルスキルが育つ","required_tags":"IT"},{"p":"制作物が残る","q":"達成感が得られる"},{"p":"必修科目","q":"全員が学ぶ"},{"p":"選択科目","q":"興味に応じて学べる"},{"p":"進級に必要","q":"学ぶ動機になる"},{"p":"趣味と結びつく","q":"興味が持続しやすい"},{"p":"将来の仕事と直結する","q":"学習意欲が高まる"},{"p":"国際共通の言語","q":"世界中で通用する"},{"p":"文化を学ぶ","q":"多様性が理解できる"},{"p":"専門用語が多い","q":"段階的に習う必要がある"},{"p":"公式が多い","q":"暗記が必要になる"},{"p":"歴史的背景がある","q":"文脈で理解できる"},{"p":"教師の説明が中心","q":"受講姿勢が大事","required_tags":"座学"},{"p":"自学自習がしやすい","q":"自主性が育つ"},{"p":"集中講義がある","q":"短期間で習得できる"},{"p":"反復練習が必要","q":"継続が力になる"},{"p":"段階的に難しくなる","q":"基礎が大事になる"},{"p":"応用問題がある","q":"思考力が試される"},{"p":"国際オリンピックがある","q":"才能を競える"},{"p":"検定試験がある","q":"力を測れる"},{"p":"資格と結びつく","q":"就職に有利になる"},{"p":"教科横断的","q":"総合的な視点が育つ"},{"p":"道徳を扱う","q":"人格形成に役立つ"},{"p":"健康を扱う","q":"生活習慣を整えられる","required_tags":"健康,生活,体験"},{"p":"環境問題を扱う","q":"地球視点が育つ"},{"p":"哲学的問いを扱う","q":"深い思考ができる"},{"p":"図解で学ぶ","q":"視覚的に理解できる"},{"p":"板書を写す","q":"集中して学べる","required_tags":"座学"},{"p":"ノートを取る","q":"知識が定着する","required_tags":"座学"},{"p":"漢字を使う","q":"表記力が育つ","required_tags":"語学"},{"p":"アルファベットを使う","q":"国際的な書き方が身につく","required_tags":"語学"},{"p":"数字を扱う","q":"量的感覚が育つ","required_tags":"計算"},{"p":"グラフを描く","q":"データ理解力が育つ"},{"p":"地図を読む","q":"空間認識が育つ"},{"p":"楽譜を読む","q":"音楽的素養が育つ","required_tags":"演奏"},{"p":"スケッチを描く","q":"観察力が育つ","required_tags":"創作"},{"p":"工作する","q":"手先が器用になる","required_tags":"工作"},{"p":"料理する","q":"生活力が育つ","required_tags":"生活"},{"p":"縫い物をする","q":"集中力が育つ","required_tags":"生活"},{"p":"走る","q":"体力が向上する","required_tags":"運動"},{"p":"礼儀を学ぶ","q":"社会性が身につく","required_tags":"価値教育"},{"p":"集中力が要る","q":"日常の作業効率も上がる"},{"p":"反復学習が効く","q":"記憶力が鍛えられる"},{"p":"現象を体感できる","q":"科学的思考が身につく"},{"p":"演奏技術が必要","q":"表現力が豊かになる","required_tags":"演奏"},{"p":"健康増進になる","q":"生涯にわたる体力が培われる","required_tags":"運動"},{"p":"読解力がつく","q":"他の教科の学習も楽になる"},{"p":"表現力が伸びる","q":"社会人として役立つスキルになる"},{"p":"論理的思考が育つ","q":"問題解決能力が高まる","required_tags":"思考,計算"},{"p":"協調性が育つ","q":"社会人としても活躍しやすい"},{"p":"国際感覚が身につく","q":"海外で活躍する道が開ける"}]},"道具":{"genre":"道具","generated_by":"Claude (Claude Code session, 2026-05-31, prompt v1)","review_status":"draft (未レビュー)","subjects":[{"name":"はさみ","tags":"刃物,切る,手動,作業"},{"name":"傘","tags":"防水,持ち運び,手動,雨具"},{"name":"ノート","tags":"紙,書く,文房具,筆記"},{"name":"スマートフォン","tags":"電子機器,通信,高機能,持ち運び,電気"},{"name":"テレビ","tags":"家電,大型,据え置き,電気,視聴"},{"name":"めがね","tags":"視覚補助,身につける"},{"name":"時計","tags":"精密,身につける,計測"},{"name":"カバン","tags":"収納,持ち運び,布,容器"},{"name":"机","tags":"家具,据え置き,木製"},{"name":"椅子","tags":"家具,据え置き"},{"name":"皿","tags":"食器,据え置き,容器"},{"name":"コップ","tags":"食器,液体,据え置き,容器"},{"name":"フォーク","tags":"食器,刃物,西洋"},{"name":"はし","tags":"食器,日本,木製,手動"},{"name":"まな板","tags":"調理,木製,平面"},{"name":"扇風機","tags":"家電,電気,据え置き"},{"name":"包丁","tags":"刃物,切る,調理,手動,作業"}],"warrants":[{"p":"鋭い","q":"切れる","required_tags":"刃物"},{"p":"防水仕様","q":"雨で濡れない","required_tags":"防水"},{"p":"透明である","q":"中身が見える","required_tags":"視覚補助,容器"},{"p":"軽い","q":"持ち運びやすい"},{"p":"重い","q":"安定感がある"},{"p":"折りたためる","q":"収納しやすい","required_tags":"持ち運び"},{"p":"伸縮できる","q":"状況に応じて使える"},{"p":"電池で動く","q":"コードがいらない","required_tags":"電気"},{"p":"電気で動く","q":"コンセントが必要になる","required_tags":"電気"},{"p":"手動で使う","q":"電力が不要","required_tags":"手動"},{"p":"紙でできている","q":"燃えやすい"},{"p":"金属でできている","q":"丈夫"},{"p":"プラスチック製","q":"軽くて成形しやすい"},{"p":"木製である","q":"温かみがある"},{"p":"ガラス製である","q":"透明だが割れやすい"},{"p":"布製である","q":"柔らかい","required_tags":"布"},{"p":"セラミック製である","q":"熱に強い"},{"p":"防錆加工","q":"長持ちする"},{"p":"防汚加工","q":"汚れにくい"},{"p":"食洗機対応","q":"手入れが楽","required_tags":"食器"},{"p":"電子レンジ対応","q":"温められる","required_tags":"食器"},{"p":"抗菌仕様","q":"衛生的に使える"},{"p":"折りたたみ式","q":"場所を取らない","required_tags":"持ち運び"},{"p":"伸縮機能つき","q":"使い分けができる"},{"p":"取っ手がある","q":"持ちやすい","required_tags":"容器,持ち運び"},{"p":"持ち手付き","q":"運びやすい"},{"p":"ボタン式","q":"操作が分かりやすい","required_tags":"電気"},{"p":"タッチ操作対応","q":"直感的に使える","required_tags":"電気"},{"p":"音声認識対応","q":"ハンズフリーで使える","required_tags":"電気"},{"p":"自動制御機能つき","q":"操作の手間が省ける","required_tags":"家電"},{"p":"防滴仕様","q":"水周りで使える","required_tags":"防水"},{"p":"耐熱仕様","q":"高温に対応できる"},{"p":"持ち運び式","q":"移動しながら使える","required_tags":"持ち運び"},{"p":"据え置き型","q":"安定して使える","required_tags":"据え置き"},{"p":"リモコン操作対応","q":"離れていても使える","required_tags":"家電"},{"p":"カスタマイズできる","q":"自分好みに調整できる"},{"p":"業務用","q":"耐久性が高い"},{"p":"家庭用","q":"サイズが手頃"},{"p":"コンパクトに畳める","q":"収納場所を選ばない"},{"p":"大容量である","q":"たくさん収納できる","required_tags":"容器,収納"},{"p":"小型である","q":"持ち歩きやすい"},{"p":"高機能","q":"多用途に使える"},{"p":"シンプル機能","q":"故障が少ない"},{"p":"高価である","q":"高品質が期待できる"},{"p":"安価である","q":"手軽に買える"},{"p":"国産である","q":"安心感がある"},{"p":"海外製である","q":"デザインが多様","required_tags":"家電,身につける"},{"p":"環境配慮設計","q":"持続可能な使い方ができる"},{"p":"修理可能","q":"長く使える"},{"p":"使い捨て","q":"衛生的に使える"},{"p":"充電式","q":"電池が不要","required_tags":"電気"},{"p":"ワイヤレス","q":"配線がいらない","required_tags":"電気"},{"p":"USB対応","q":"充電が手軽","required_tags":"電気"},{"p":"太陽光発電対応","q":"電気代がかからない","required_tags":"電気"},{"p":"静音設計","q":"夜でも使える","required_tags":"家電"},{"p":"軽量化された","q":"携帯に便利"},{"p":"ハンドメイド","q":"一点物の価値がある","required_tags":"家具,容器"},{"p":"大量生産品","q":"価格が均一"},{"p":"カラー展開が多い","q":"好みで選べる"},{"p":"デザイン性が高い","q":"インテリアにもなる"},{"p":"機能美","q":"使いやすさと美しさが両立する"},{"p":"子どもの教育に使える","q":"学習効果が期待できる"},{"p":"ペット用である","q":"ペットの世話に使う"},{"p":"介護用である","q":"介護の現場で活躍する"},{"p":"防災用である","q":"災害時に役立つ"},{"p":"切れる","q":"作業効率が上がる","required_tags":"刃物"},{"p":"雨で濡れない","q":"屋外でも安心して使える"},{"p":"収納しやすい","q":"狭い場所でも保管できる"},{"p":"コンセントが必要になる","q":"設置場所が限られる"},{"p":"電池が不要","q":"経済的な負担が減る"},{"p":"操作の手間が省ける","q":"忙しい現代人に向く"},{"p":"環境負荷が少ない","q":"持続可能な社会に貢献する"},{"p":"操作が簡単","q":"幅広い世代が使える"}]},"乗り物":{"genre":"乗り物","generated_by":"Claude (Claude Code session, 2026-05-31, prompt v1)","review_status":"draft (未レビュー)","subjects":[{"name":"自転車","tags":"自家用,陸上,2輪,個人,近距離,低速"},{"name":"新幹線","tags":"公共交通,陸上,鉄道,大型,長距離,高速"},{"name":"飛行機","tags":"公共交通,空,大型,長距離,高速"},{"name":"船","tags":"公共交通,水上,大型,長距離"},{"name":"ロケット","tags":"宇宙,特殊,長距離,高速"},{"name":"自動車","tags":"自家用,陸上,4輪,中距離"},{"name":"バス","tags":"公共交通,陸上,4輪,近距離,中距離"},{"name":"地下鉄","tags":"公共交通,陸上,鉄道,近距離"},{"name":"ヘリコプター","tags":"空,中距離"},{"name":"潜水艦","tags":"水中,特殊,長距離"},{"name":"スケートボード","tags":"自家用,陸上,個人,近距離,低速"},{"name":"一輪車","tags":"自家用,陸上,個人,近距離,低速"},{"name":"トラック","tags":"業務用,陸上,4輪,大型,中距離,長距離"},{"name":"消防車","tags":"緊急車両,陸上,4輪,近距離"},{"name":"救急車","tags":"緊急車両,陸上,4輪,近距離"},{"name":"タクシー","tags":"公共交通,陸上,4輪,近距離,中距離"},{"name":"ヨット","tags":"自家用,水上,個人,中距離"}],"warrants":[{"p":"動力を持つ","q":"速く動ける","required_tags":"陸上,空,水上,水中,宇宙"},{"p":"車輪を持つ","q":"陸を走る","required_tags":"陸上"},{"p":"電動式である","q":"排気ガスが出ない","required_tags":"陸上,空,水中"},{"p":"ガソリンで動く","q":"給油が必要"},{"p":"ペダルをこぐ","q":"体力が要る","required_tags":"個人,2輪"},{"p":"飛行可能","q":"空を移動できる","required_tags":"空"},{"p":"浮力を使う","q":"水に浮く","required_tags":"水上"},{"p":"帆を使う","q":"風で進める","required_tags":"水上"},{"p":"2輪である","q":"バランス感覚が必要","required_tags":"2輪"},{"p":"4輪である","q":"安定して走れる","required_tags":"4輪"},{"p":"多輪である","q":"重い物を運べる","required_tags":"大型"},{"p":"レール上を走る","q":"経路が決まっている","required_tags":"鉄道"},{"p":"レールなしで走る","q":"自由に方向転換できる","required_tags":"陸上"},{"p":"公共交通","q":"多くの人が利用できる","required_tags":"公共交通"},{"p":"自家用","q":"自分の時間で動ける","required_tags":"自家用"},{"p":"業務用","q":"物資輸送に使う","required_tags":"業務用"},{"p":"緊急車両","q":"優先的に通行できる","required_tags":"緊急車両"},{"p":"スポーツ用","q":"速度や運動が目的になる"},{"p":"子ども用","q":"安全性が重視される"},{"p":"高齢者向け","q":"バリアフリー設計になる"},{"p":"観光用","q":"景色を楽しめる","required_tags":"公共交通"},{"p":"軍用","q":"防衛・戦闘目的","required_tags":"特殊"},{"p":"救助用","q":"災害時に活躍する","required_tags":"緊急車両"},{"p":"宇宙用","q":"高度な技術が必要","required_tags":"宇宙"},{"p":"旧型","q":"クラシックな魅力がある"},{"p":"最新型","q":"機能が充実している"},{"p":"環境配慮型","q":"排出量が少ない"},{"p":"大型","q":"多くの人や荷物を乗せられる"},{"p":"小型","q":"取り回しが容易"},{"p":"高速","q":"短時間で移動できる","required_tags":"高速"},{"p":"低速","q":"安全に移動できる","required_tags":"低速"},{"p":"遠距離向け","q":"長旅に適する","required_tags":"長距離"},{"p":"近距離向け","q":"日常の移動に便利","required_tags":"近距離"},{"p":"都市部向け","q":"渋滞対応設計になる","required_tags":"近距離"},{"p":"山岳向け","q":"急斜面に強い","required_tags":"中距離"},{"p":"海上で使う","q":"水に浮く必要がある","required_tags":"水上"},{"p":"水中で使う","q":"防水・耐圧設計が必要","required_tags":"水中"},{"p":"空中で使う","q":"揚力が必要","required_tags":"空"},{"p":"宇宙で使う","q":"真空中での推進力が必要","required_tags":"宇宙"},{"p":"蒸気で動く","q":"燃料に水を使う","required_tags":"鉄道"},{"p":"電気で動く","q":"充電が必要"},{"p":"太陽光で動く","q":"持続可能なエネルギーを使える"},{"p":"ハイブリッド","q":"燃費がよい","required_tags":"4輪"},{"p":"マニュアル運転","q":"運転技術が必要"},{"p":"免許が必要","q":"講習を受ける必要がある"},{"p":"免許不要","q":"誰でも乗れる"},{"p":"1人乗り","q":"個人移動に最適","required_tags":"個人,自家用"},{"p":"2人乗り","q":"二人で楽しめる","required_tags":"2輪,4輪"},{"p":"多人数乗車","q":"家族や団体で移動できる","required_tags":"大型,公共交通"},{"p":"後輪駆動","q":"加速性能が高い","required_tags":"4輪"},{"p":"前輪駆動","q":"燃費が良い","required_tags":"4輪"},{"p":"四輪駆動","q":"悪路でも走れる","required_tags":"4輪"},{"p":"折りたためる","q":"収納しやすい"},{"p":"折りたためない","q":"構造が頑丈","required_tags":"鉄道,大型"},{"p":"軽量","q":"燃費がよい"},{"p":"重量がある","q":"安定走行に向く"},{"p":"高出力","q":"力強い走行ができる"},{"p":"静音設計","q":"周囲に迷惑をかけない"},{"p":"自走式","q":"動力源を内蔵"},{"p":"牽引式","q":"別の動力に引かれて動く"},{"p":"公道走行可能","q":"どこでも使える"},{"p":"専用道のみ","q":"安全性が高い"},{"p":"レンタル可能","q":"必要な時だけ使える"},{"p":"カーシェア対応","q":"効率的に利用できる"},{"p":"速く動ける","q":"遠距離移動が短時間で済む"},{"p":"排気ガスが出ない","q":"環境にやさしい"},{"p":"給油が必要","q":"燃料費がかかる"},{"p":"空を移動できる","q":"国境を越えて移動できる"},{"p":"水に浮く","q":"海上輸送に使われる"},{"p":"バランス感覚が必要","q":"運転技術の習得に時間がかかる"},{"p":"安定して走れる","q":"家族で安心して乗れる"},{"p":"多くの人が利用できる","q":"都市の交通網を支える","required_tags":"公共交通"},{"p":"自分の時間で動ける","q":"生活の自由度が高まる","required_tags":"自家用"}]}};
+</script>
+<script>
+/**
+ * 三角ロジック 自動生成器（移植元: qtype_triangle/classes/problem_generator.php）
+ *
+ * 移植した関数: generate_single / generate_from_library（単一・複合）と、その補助
+ *   （ダミー候補プール、層化抽出、カバレッジ最大化の貪欲法、正解 3 枚・5 枚の組立）。
+ * 判定は engine.js（TRI）に任せ、生成器では判定規則を持たない。
+ *
+ * 入力の語彙（library）は seed_*.json と同じ形: [{genre, subjects:[{name, tags}], warrants:[{p, q, required_tags}]}]
+ * 乱数は seed 付きの PRNG（mulberry32）。同じ seed なら同じ問題になる。
+ *
+ * PHP からの主な変更（詳しくは報告書の「移植で変えた点」を参照）:
+ *   - 乱数: rand / shuffle を seed 付き PRNG に置き換えた
+ *   - 一意性: 生成した問の解の数（TRI.countValidSolutions 相当）が 1 になるよう、候補の採用を制限した
+ *   - 逆向きの pair（P→Q と Q→P が両方ライブラリにある warrant）は正解に使わない（validate_autogen の C7）
+ *   - 主語が適合 warrant を持たない場合は、別の主語を引き直す（PHP は例外で止まる）
+ *
+ * GAS（V8）・ブラウザ・node の三つで動く（engine.js と同じ書き方）。
+ * @package qtype_triangle（GAS 版）
+ */
+var TRI_GEN = (function () {
+  'use strict';
+
+  var TRIE = (typeof TRI !== 'undefined') ? TRI : require('./engine.js');
+
+  var MAX_ATTEMPTS = 300;      // 主語・warrant の引き直しの上限（1 問あたり）
+  var SINGLE_POOL_MAX = 25;    // 単一のダミー候補プールの上限（PHP の stratified_sample と同じ）
+  var COMPOUND_POOL_MAX = 12;  // 複合のダミー候補プールの上限（PHP と同じ）
+  var CODE_SHIFT = 1024;       // 署名 ID を並べるための基数（キャッシュ鍵）
+  var DEFAULT_ALT_TERMS = ['人気がある', '上手にできる', '評判がよい', '長く遊べる'];
+
+  // ----- 小さな補助 -------------------------------------------------------
+
+  /** PHP の ($x ?? '') に当たる文字列化 */
+  function str(v) {
+    return v === null || v === undefined ? '' : String(v);
+  }
+
+  /** PHP の trim（全角空白を含む） */
+  function trimStr(v) {
+    return str(v).replace(/^\s+|\s+$/g, '');
+  }
+
+  /** null / undefined の既定値（PHP の ??） */
+  function orDefault(v, d) {
+    return v === null || v === undefined ? d : v;
+  }
+
+  function clampInt(v, lo, hi, d) {
+    var n = (v === null || v === undefined) ? d : parseInt(v, 10);
+    if (isNaN(n)) n = d;
+    return Math.max(lo, Math.min(hi, n));
+  }
+
+  /** カンマ区切りのタグ文字列 → 配列（trim・空除去） */
+  function splitTags(s) {
+    var t = trimStr(s);
+    if (t === '') return [];
+    return t.split(',').map(trimStr).filter(function (x) { return x !== ''; });
+  }
+
+  /** subject.tags ⊇ warrant.required_tags（required が空なら適用可）。PHP の Phase H 判定 */
+  function tagsSatisfied(subjectTags, requiredTags) {
+    var req = splitTags(requiredTags);
+    if (req.length === 0) return true;
+    var have = splitTags(subjectTags);
+    return req.every(function (r) { return have.indexOf(r) >= 0; });
+  }
+
+  // ----- 乱数（mulberry32）-------------------------------------------------
+
+  /** seed（32bit 整数）から [0,1) の乱数列を作る */
+  function mulberry32(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function makeRng(seed) {
+    var next = mulberry32(seed);
+    return {
+      next: next,
+      /** [0, n) の整数 */
+      int: function (n) { return Math.floor(next() * n); },
+      pick: function (arr) { return arr[Math.floor(next() * arr.length)]; },
+      /** Fisher-Yates（PHP の shuffle 相当。in-place で返す） */
+      shuffle: function (arr) {
+        for (var i = arr.length - 1; i > 0; i--) {
+          var j = Math.floor(next() * (i + 1));
+          var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+        }
+        return arr;
+      }
+    };
+  }
+
+  function newSeed(opts) {
+    if (opts.seed === undefined || opts.seed === null) {
+      return Math.floor(Math.random() * 4294967296);
+    }
+    return Number(opts.seed) >>> 0;
+  }
+
+  // ----- 語彙 -------------------------------------------------------------
+
+  /**
+   * 語彙を正規化する。library は seed_*.json の配列（{genre, subjects, warrants}）。
+   * 返り値: genres（主語と warrant のある genre）と、全 warrant から作った逆向き判定表（C7 用）。
+   */
+  function normalizeLibrary(library) {
+    if (!Array.isArray(library) || library.length === 0) {
+      throw new Error('library（genre の配列）が必要です');
+    }
+    var all = library.map(function (g) {
+      return {
+        genre: trimStr(g.genre),
+        subjects: (g.subjects || []).map(function (s) {
+          return { name: trimStr(s.name), tags: trimStr(s.tags) };
+        }).filter(function (s) { return s.name !== ''; }),
+        warrants: (g.warrants || []).map(function (w) {
+          return { p: trimStr(w.p), q: trimStr(w.q), required_tags: trimStr(w.required_tags) };
+        }).filter(function (w) { return w.p !== '' && w.q !== ''; })
+      };
+    });
+    var revSet = {};
+    all.forEach(function (g) {
+      g.warrants.forEach(function (w) { revSet[w.p + '\u0000' + w.q] = true; });
+    });
+    var genres = all.filter(function (g) {
+      return g.subjects.length > 0 && g.warrants.length > 0;
+    });
+    return { genres: genres, revSet: revSet };
+  }
+
+  /** P→Q の逆 Q→P が語彙にあるか（validate_autogen の C7）。自分自身（P→P）も対象 */
+  function isReversible(w, revSet) {
+    return revSet.hasOwnProperty(w.q + '\u0000' + w.p);
+  }
+
+  /** 主語に適合し、逆向き pair でない warrant（PHP の filter_warrants_by_subject_tags + C7 の事前除外） */
+  function applicableWarrants(g, subject, revSet) {
+    return g.warrants.filter(function (w) {
+      return !isReversible(w, revSet) && tagsSatisfied(subject.tags, w.required_tags);
+    });
+  }
+
+  /** w1.q == w2.p となる warrant の組（PHP の find_warrant_chains）。同じ要素の組は除く */
+  function findWarrantChains(ws) {
+    var chains = [];
+    for (var i = 0; i < ws.length; i++) {
+      for (var j = 0; j < ws.length; j++) {
+        if (i === j) continue;
+        if (ws[i].q === ws[j].p) chains.push([ws[i], ws[j]]);
+      }
+    }
+    return chains;
+  }
+
+  // ----- カードの組立 -------------------------------------------------------
+
+  function sentenceParticular(subject, pred) { return subject + 'は' + pred; }
+  function sentenceGeneral(p, q) { return p + 'ならば' + q; }
+
+  function makeParticular(subject, pred) {
+    return {
+      card_no: 0,
+      text: sentenceParticular(subject, pred),
+      proposition_form: 'particular',
+      subject_term: subject,
+      predicate_term: pred,
+      role: 'dummy',
+      semantic_valid: 1
+    };
+  }
+
+  function makeGeneral(p, q) {
+    return {
+      card_no: 0,
+      text: sentenceGeneral(p, q),
+      proposition_form: 'general',
+      antecedent_term: p,
+      consequent_term: q,
+      role: 'dummy',
+      semantic_valid: 1
+    };
+  }
+
+  /** 正解 3 枚（単一）。PHP の build_correct_triplet */
+  function buildTriplet(subject, p, q) {
+    return [
+      { card_no: 1, text: sentenceParticular(subject, q), proposition_form: 'particular',
+        subject_term: subject, predicate_term: q, role: 'correct', correct_slot: 'claim', semantic_valid: 1 },
+      { card_no: 2, text: sentenceParticular(subject, p), proposition_form: 'particular',
+        subject_term: subject, predicate_term: p, role: 'correct', correct_slot: 'fact', semantic_valid: 1 },
+      { card_no: 3, text: sentenceGeneral(p, q), proposition_form: 'general',
+        antecedent_term: p, consequent_term: q, role: 'correct', correct_slot: 'warrant', semantic_valid: 1 }
+    ];
+  }
+
+  /** 正解 5 枚（複合）。PHP の build_correct_quintet。final_claim だけ role=correct_final */
+  function buildQuintet(subject, p, q, qp) {
+    return [
+      { card_no: 1, text: sentenceParticular(subject, qp), proposition_form: 'particular',
+        subject_term: subject, predicate_term: qp, role: 'correct_final', correct_slot: 'final_claim', semantic_valid: 1 },
+      { card_no: 2, text: sentenceParticular(subject, q), proposition_form: 'particular',
+        subject_term: subject, predicate_term: q, role: 'correct', correct_slot: 'middle', semantic_valid: 1 },
+      { card_no: 3, text: sentenceGeneral(q, qp), proposition_form: 'general',
+        antecedent_term: q, consequent_term: qp, role: 'correct', correct_slot: 'upper_warrant', semantic_valid: 1 },
+      { card_no: 4, text: sentenceParticular(subject, p), proposition_form: 'particular',
+        subject_term: subject, predicate_term: p, role: 'correct', correct_slot: 'lower_fact', semantic_valid: 1 },
+      { card_no: 5, text: sentenceGeneral(p, q), proposition_form: 'general',
+        antecedent_term: p, consequent_term: q, role: 'correct', correct_slot: 'lower_warrant', semantic_valid: 1 }
+    ];
+  }
+
+  // ----- ダミー候補プール -----------------------------------------------------
+
+  /** 単一のダミー候補（PHP の build_dummy_candidate_pool）。違反パターン A〜F */
+  function buildSinglePool(subjectName, p, q, g) {
+    var pool = [];
+    // A. 主語置換
+    g.subjects.forEach(function (s) {
+      if (s.name === subjectName) return;
+      pool.push(makeParticular(s.name, q));
+      pool.push(makeParticular(s.name, p));
+    });
+    // B. 述語置換
+    g.warrants.forEach(function (w) {
+      if (w.p !== p && w.p !== q) pool.push(makeParticular(subjectName, w.p));
+      if (w.q !== p && w.q !== q) pool.push(makeParticular(subjectName, w.q));
+    });
+    // C. 別の前件 → Q（T.S 違反）
+    g.warrants.forEach(function (w) { if (w.p !== p) pool.push(makeGeneral(w.p, q)); });
+    // D. P → 別の後件（E.S 違反）
+    g.warrants.forEach(function (w) { if (w.q !== q) pool.push(makeGeneral(p, w.q)); });
+    // E. 反転 Q → P
+    pool.push(makeGeneral(q, p));
+    // F. 完全に別の warrant
+    g.warrants.forEach(function (w) {
+      if (w.p !== p && w.q !== q && w.p !== q && w.q !== p) pool.push(makeGeneral(w.p, w.q));
+    });
+    return pool;
+  }
+
+  /** 複合のダミー候補（PHP の build_dummy_candidate_pool_compound）。A〜G */
+  function buildCompoundPool(subjectName, p, q, qp, g) {
+    var pool = [];
+    var exclude = [p, q, qp];
+    // A. 主語置換
+    g.subjects.forEach(function (s) {
+      if (s.name === subjectName) return;
+      [qp, q, p].forEach(function (pred) { pool.push(makeParticular(s.name, pred)); });
+    });
+    // B. 述語置換
+    g.warrants.forEach(function (w) {
+      if (exclude.indexOf(w.p) < 0) pool.push(makeParticular(subjectName, w.p));
+      if (exclude.indexOf(w.q) < 0) pool.push(makeParticular(subjectName, w.q));
+    });
+    // C. 中項違反: alt → Q'
+    g.warrants.forEach(function (w) {
+      if (w.p !== q && w.p !== p) pool.push(makeGeneral(w.p, qp));
+    });
+    // D. 終項違反: Q → alt
+    g.warrants.forEach(function (w) {
+      if (w.q !== qp && w.q !== q) pool.push(makeGeneral(q, w.q));
+    });
+    // E. 下三角形の中項違反: alt → Q
+    g.warrants.forEach(function (w) {
+      if (w.p !== p && w.p !== q) pool.push(makeGeneral(w.p, q));
+    });
+    // F. 下三角形の終項違反: P → alt
+    g.warrants.forEach(function (w) {
+      if (w.q !== q && w.q !== p) pool.push(makeGeneral(p, w.q));
+    });
+    // G. 反転
+    pool.push(makeGeneral(qp, q));
+    pool.push(makeGeneral(q, p));
+    pool.push(makeGeneral(qp, p));
+    return pool;
+  }
+
+  /** 本文（form|text）の重複を除き、正解と同じ本文も除く（PHP の重複除去 + C6 の事前除外） */
+  function dedupeAgainst(pool, excludeTexts) {
+    var seen = {};
+    excludeTexts.forEach(function (t) { seen[t] = true; });
+    var out = [];
+    pool.forEach(function (c) {
+      var key = c.proposition_form + '|' + c.text;
+      if (seen[key]) return;
+      seen[key] = true;
+      out.push(c);
+    });
+    return out;
+  }
+
+  /** 違反パターン別の層化抽出（PHP の stratified_sample）。particular と general を半分ずつ */
+  function stratifiedSample(pool, maxSize, rng) {
+    if (pool.length <= maxSize) return pool.slice();
+    var by = { particular: [], general: [] };
+    pool.forEach(function (c) { by[c.proposition_form].push(c); });
+    var half = Math.ceil(maxSize / 2);
+    var result = [];
+    ['particular', 'general'].forEach(function (form) {
+      rng.shuffle(by[form].slice()).slice(0, half).forEach(function (c) { result.push(c); });
+    });
+    if (result.length > maxSize) {
+      rng.shuffle(result);
+      result = result.slice(0, maxSize);
+    }
+    return result;
+  }
+
+  // ----- 判定の補助（キャッシュ付き）------------------------------------------
+
+  /**
+   * 生成 1 問ぶんの作業領域。mode ごとに、カードの署名（内容）に番号を振り、
+   * 配置の判定結果をキャッシュする（PHP の eval_cache に相当）。
+   */
+  function newContext(mode) {
+    return { mode: mode, sigIds: {}, sigCount: 0, cache: {} };
+  }
+
+  function sigOf(c) {
+    return [c.proposition_form, c.subject_term, c.predicate_term, c.antecedent_term,
+      c.consequent_term, c.role, c.correct_slot, c.semantic_valid]
+      .map(str).join('|');
+  }
+
+  function sigId(ctx, c) {
+    var s = sigOf(c);
+    if (!ctx.sigIds.hasOwnProperty(s)) {
+      ctx.sigIds[s] = ctx.sigCount++;
+      if (ctx.sigCount >= CODE_SHIFT) throw new Error('署名の種類が多すぎます');
+    }
+    return ctx.sigIds[s];
+  }
+
+  /** 判定フラグ → 状態番号（単一は 4 bit、複合は 7 bit。PHP の $state 文字列に相当） */
+  function stateCode(f, mode) {
+    var bits = [f.p_s, f.t_s, f.e_s, f.m_s];
+    if (mode === 'compound') bits = bits.concat([f.c_s, f.i_p_s, f.f_s]);
+    var code = 0;
+    bits.forEach(function (b) { code = code * 2 + (b ? 1 : 0); });
+    return code;
+  }
+
+  /**
+   * カバレッジ（PHP の enumerate_coverage）。全配置の状態の種類数を返す。
+   * 単一は 3 スロット、複合は 5 スロットの全順列を見る。
+   */
+  function coverageSize(cards, ctx) {
+    var mode = ctx.mode;
+    var keys = mode === 'compound' ? TRIE.COMPOUND_SLOTS : TRIE.SINGLE_SLOTS;
+    var n = cards.length;
+    var k = keys.length;
+    if (n < k) return 0;
+    var sids = cards.map(function (c) { return sigId(ctx, c); });
+    var used = [];
+    var idxs = [];
+    var seen = {};
+    var count = 0;
+    function rec(depth, code) {
+      if (depth === k) {
+        var st = ctx.cache[code];
+        if (st === undefined) {
+          var slots = {};
+          for (var i = 0; i < k; i++) slots[keys[i]] = cards[idxs[i]].card_no;
+          st = stateCode(TRIE.evaluate(mode, cards, slots), mode);
+          ctx.cache[code] = st;
+        }
+        if (!seen[st]) { seen[st] = true; count++; }
+        return;
+      }
+      for (var j = 0; j < n; j++) {
+        if (used[j]) continue;
+        used[j] = true;
+        idxs[depth] = j;
+        rec(depth + 1, code * CODE_SHIFT + sids[j]);
+        used[j] = false;
+      }
+    }
+    rec(0, 0);
+    return count;
+  }
+
+  /**
+   * 解の数（TRI.countValidSolutions と同じ値）。主語の一致で枝刈りした全列挙。
+   * 生成器の内部で何度も呼ぶので、主語ごとに候補を絞ってから配置を数える。
+   * 同じ値になることは tests/test_generator.js で TRI.countValidSolutions と突き合わせる。
+   */
+  function countUnique(cards, mode) {
+    var subjKeys = mode === 'compound' ? ['final_claim', 'middle', 'lower_fact'] : ['claim', 'fact'];
+    var restKeys = mode === 'compound' ? ['upper_warrant', 'lower_warrant'] : ['warrant'];
+    var groups = {};
+    cards.forEach(function (c, i) {
+      var s = str(c.subject_term);
+      if (s === '') return;
+      (groups[s] = groups[s] || []).push(i);
+    });
+    var total = 0;
+    var n = cards.length;
+    Object.keys(groups).forEach(function (s) {
+      var sub = groups[s];
+      if (sub.length < subjKeys.length) return;
+      var used = [];
+      var slots = {};
+      function restRec(depth) {
+        if (depth === restKeys.length) {
+          if (TRIE.isFullSatisfaction(TRIE.evaluate(mode, cards, slots), mode)) total++;
+          return;
+        }
+        for (var j = 0; j < n; j++) {
+          if (used[j]) continue;
+          used[j] = true;
+          slots[restKeys[depth]] = cards[j].card_no;
+          restRec(depth + 1);
+          used[j] = false;
+        }
+      }
+      function subjRec(depth) {
+        if (depth === subjKeys.length) {
+          restRec(0);
+          return;
+        }
+        sub.forEach(function (j) {
+          if (used[j]) return;
+          used[j] = true;
+          slots[subjKeys[depth]] = cards[j].card_no;
+          subjRec(depth + 1);
+          used[j] = false;
+        });
+      }
+      subjRec(0);
+    });
+    return total;
+  }
+
+  function withCardNo(c, no) {
+    return Object.assign({}, c, { card_no: no });
+  }
+
+  /**
+   * カバレッジ最大化の貪欲法（PHP の greedy_search）。
+   * 一意性を保つ候補（countUnique が 1）だけを採る。改善する候補が無いときは、
+   * 一意性を保つ先頭の候補を採る（PHP と同じ fallback）。どの候補も一意性を保てなければ null。
+   */
+  function greedySearch(pool, correct, count, ctx, startNo) {
+    var selected = [];
+    var remaining = pool.slice();
+    var current = coverageSize(correct, ctx);
+    var tried = 0;
+    for (var k = 0; k < count; k++) {
+      var next = startNo + k;
+      var bestIdx = -1;
+      var bestSize = current;
+      for (var i = 0; i < remaining.length; i++) {
+        tried++;
+        var test = correct.concat(selected, [withCardNo(remaining[i], next)]);
+        var size = coverageSize(test, ctx);
+        if (size > bestSize && countUnique(test, ctx.mode) === 1) {
+          bestSize = size;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx < 0) {
+        for (var m = 0; m < remaining.length; m++) {
+          tried++;
+          var t2 = correct.concat(selected, [withCardNo(remaining[m], next)]);
+          if (countUnique(t2, ctx.mode) === 1) {
+            bestIdx = m;
+            bestSize = coverageSize(t2, ctx);
+            break;
+          }
+        }
+        if (bestIdx < 0) return null;
+      }
+      selected.push(withCardNo(remaining[bestIdx], next));
+      remaining.splice(bestIdx, 1);
+      current = bestSize;
+    }
+    return { dummies: selected, coverage: current, tried: tried };
+  }
+
+  // ----- 1 問の生成 -----------------------------------------------------------
+
+  /**
+   * 語彙からの 1 問生成（PHP の generate_from_library、単一・複合の両方）。
+   *
+   * @param {Object} opts {
+   *   library: seed_*.json の配列（必須）,
+   *   genre?: string       指定ジャンルだけから選ぶ（空なら実行可能なジャンルから乱択）,
+   *   mode?: 'single'|'compound'（既定 single）,
+   *   dummy_count?: 0〜5（既定 3）,
+   *   seed?: number        乱数の種（省略時は乱数で決める。結果の _seed に入る）,
+   *   level_no?, assignment_no?
+   * }
+   * @return {Object} sample_questions.json 互換の問題
+   */
+  function generateFromLibrary(opts) {
+    opts = opts || {};
+    var lib = normalizeLibrary(opts.library);
+    var seed = newSeed(opts);
+    var rng = makeRng(seed);
+    var dummyCount = clampInt(opts.dummy_count, 0, 5, 3);
+    var mode = opts.mode === 'compound' ? 'compound' : 'single';
+
+    // 実行可能なジャンル（mode に合う主語と warrant の組がある）
+    function feasible(g) {
+      return g.subjects.some(function (s) {
+        var app = applicableWarrants(g, s, lib.revSet);
+        return mode === 'compound' ? findWarrantChains(app).length > 0 : app.length > 0;
+      });
+    }
+    var g;
+    var wantGenre = trimStr(opts.genre);
+    if (wantGenre !== '') {
+      g = lib.genres.filter(function (x) { return x.genre === wantGenre; })[0];
+      if (!g) throw new Error("ジャンル '" + wantGenre + "' が語彙にない");
+      if (!feasible(g)) throw new Error("ジャンル '" + wantGenre + "' に" + (mode === 'compound' ? '連鎖' : '適合') + "する組がない");
+    } else {
+      var ok = lib.genres.filter(feasible);
+      if (ok.length === 0) throw new Error('実行可能なジャンルがない（mode=' + mode + '）');
+      g = rng.pick(ok);
+    }
+
+    var result = null;
+    var attempts = 0;
+    while (!result && attempts < MAX_ATTEMPTS) {
+      attempts++;
+      var subject = rng.pick(g.subjects);
+      var app = applicableWarrants(g, subject, lib.revSet);
+      var ctx = newContext(mode);
+      if (mode === 'single') {
+        if (app.length === 0) continue;
+        var w = rng.pick(app);
+        var correct = buildTriplet(subject.name, w.p, w.q);
+        var excl = correct.map(function (c) { return c.proposition_form + '|' + c.text; });
+        var dummies = [];
+        var info = null;
+        if (dummyCount > 0) {
+          var pool = stratifiedSample(dedupeAgainst(buildSinglePool(subject.name, w.p, w.q, g), excl),
+            SINGLE_POOL_MAX, rng);
+          var r = greedySearch(pool, correct, dummyCount, ctx, correct.length + 1);
+          if (!r) continue;
+          dummies = r.dummies;
+          info = { pool_size: pool.length, tried: r.tried };
+        }
+        var cards = correct.concat(dummies);
+        if (countUnique(cards, mode) !== 1) continue;
+        var cov = dummyCount > 0 ? coverageSize(cards, ctx) : null;
+        result = {
+          name: sprintf('[自動生成・%s] %sは%s', g.genre, subject.name, w.q),
+          questiontext: '与えられたカードから三角ロジックを組み立ててください。',
+          mode: 'single',
+          topic: g.genre + 'の特徴に関する論証',
+          order_required: 0,
+          level_no: orDefault(opts.level_no, null),
+          assignment_no: orDefault(opts.assignment_no, null),
+          cards: cards,
+          _genre: g.genre,
+          _subject: subject.name,
+          _warrant: { p: w.p, q: w.q },
+          coverage_info: dummyCount > 0 ? {
+            final_states: cov, max_possible: 16, search_method: 'greedy',
+            candidates_tried: info.tried, pool_size: info.pool_size
+          } : null
+        };
+      } else {
+        var chains = findWarrantChains(app);
+        if (chains.length === 0) continue;
+        var ch = rng.pick(chains);
+        var w1 = ch[0], w2 = ch[1];
+        var cq = buildQuintet(subject.name, w1.p, w1.q, w2.q);
+        var excl2 = cq.map(function (c) { return c.proposition_form + '|' + c.text; });
+        var dums = [];
+        var info2 = null;
+        if (dummyCount > 0) {
+          var pool2 = stratifiedSample(
+            dedupeAgainst(buildCompoundPool(subject.name, w1.p, w1.q, w2.q, g), excl2),
+            COMPOUND_POOL_MAX, rng);
+          var r2 = greedySearch(pool2, cq, dummyCount, ctx, cq.length + 1);
+          if (!r2) continue;
+          dums = r2.dummies;
+          info2 = { pool_size: pool2.length, tried: r2.tried };
+        }
+        var cards2 = cq.concat(dums);
+        if (countUnique(cards2, mode) !== 1) continue;
+        var cov2 = dummyCount > 0 ? coverageSize(cards2, ctx) : null;
+        result = {
+          name: sprintf('[自動生成・%s/複合] %s', g.genre, subject.name),
+          questiontext: '与えられたカードから複合三角ロジックを組み立ててください。',
+          mode: 'compound',
+          topic: g.genre + 'の特徴に関する論証',
+          order_required: 0,
+          level_no: orDefault(opts.level_no, null),
+          assignment_no: orDefault(opts.assignment_no, null),
+          cards: cards2,
+          _genre: g.genre,
+          _subject: subject.name,
+          _warrant: { p: w1.p, q: w1.q },
+          _warrant_upper: { p: w2.p, q: w2.q },
+          coverage_info: dummyCount > 0 ? {
+            final_states: cov2, max_possible: 128, search_method: 'greedy',
+            candidates_tried: info2.tried, pool_size: info2.pool_size
+          } : null
+        };
+      }
+    }
+    if (!result) {
+      throw new Error('生成に失敗（' + MAX_ATTEMPTS + ' 回試行）: genre=' + g.genre + ' mode=' + mode);
+    }
+    result._seed = seed;
+    result._attempts = attempts;
+    return result;
+  }
+
+  /** 単純な %s 置換（PHP の sprintf 相当。%s を順に埋める） */
+  function sprintf(fmt) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    var i = 0;
+    return fmt.replace(/%s/g, function () { return str(args[i++]); });
+  }
+
+  // ----- 手入力の単一問（generate_single）-------------------------------------
+
+  /** ダミーの候補（PHP の build_dummies）。候補を作って shuffle し、先頭 count 個 */
+  function buildDummies(subject, p, q, terms, count, rng) {
+    var alt = terms.length ? terms : DEFAULT_ALT_TERMS;
+    var cands = [];
+    alt.forEach(function (a) {
+      if (a === p || a === q) return;
+      cands.push(makeParticular(subject, a));
+    });
+    alt.forEach(function (a) {
+      if (a === p) return;
+      cands.push(makeGeneral(a, q));
+    });
+    alt.forEach(function (a) {
+      if (a === q) return;
+      cands.push(makeGeneral(p, a));
+    });
+    cands.push(makeGeneral(q, p));
+    return rng.shuffle(cands).slice(0, count);
+  }
+
+  /**
+   * 主語・述語 Q・述語 P から 1 問（手入力モード）。PHP の generate_single。
+   * 注意: PHP と同じく、ダミーは一意性を検査せずに選ぶ（解が複数になることがある）。
+   */
+  function generateSingle(opts) {
+    opts = opts || {};
+    var subject = trimStr(opts.subject);
+    var predicateQ = trimStr(opts.predicate_q);
+    var predicateP = trimStr(opts.predicate_p);
+    if (subject === '' || predicateQ === '' || predicateP === '') {
+      throw new Error('subject / predicate_q / predicate_p は必須');
+    }
+    var terms = (opts.dummy_terms || []).map(trimStr).filter(function (x) { return x !== ''; });
+    var dummyCount = clampInt(opts.dummy_count, 0, 5, 3);
+    var seed = newSeed(opts);
+    var rng = makeRng(seed);
+
+    var cards = buildTriplet(subject, predicateP, predicateQ);
+    var dummies = buildDummies(subject, predicateP, predicateQ, terms, dummyCount, rng);
+    dummies.forEach(function (d, i) {
+      cards.push(withCardNo(d, 4 + i));
+    });
+    return {
+      name: orDefault(opts.name, sprintf('[自動生成] %sは%s', subject, predicateQ)),
+      questiontext: '与えられたカードから三角ロジックを組み立ててください。',
+      mode: 'single',
+      topic: orDefault(opts.topic, sprintf('%s に関する論証', subject)),
+      order_required: 0,
+      level_no: orDefault(opts.level_no, null),
+      assignment_no: orDefault(opts.assignment_no, null),
+      cards: cards,
+      _seed: seed
+    };
+  }
+
+  return {
+    generateFromLibrary: generateFromLibrary,
+    generateSingle: generateSingle,
+    mulberry32: mulberry32,
+    countUnique: countUnique,
+    isReversible: isReversible,
+    normalizeLibrary: normalizeLibrary
+  };
+})();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = TRI_GEN;
+}
+
+</script>
+
+<script>
+// GAS のウェブアプリを呼ぶ薄い層。Content-Type を text/plain にして、ブラウザの事前確認（CORS）を避ける。
+var API = (function () {
+  var endpoint = (typeof MSK_CONFIG !== 'undefined' && MSK_CONFIG.endpoint) || '';
+  function call(body) {
+    if (!endpoint) return Promise.resolve({ ok: false, code: 'config', error: 'web/config.json の endpoint が空です' });
+    return fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body),
+      redirect: 'follow'
+    }).then(function (r) { return r.json(); })
+      .catch(function (e) { return { ok: false, code: 'network', error: '通信できませんでした（' + e.message + '）' }; });
+  }
+  return {
+    login: function (idToken) { return call({ action: 'login', idToken: idToken }); },
+    resume: function (session) { return call({ action: 'resume', session: session }); },
+    check: function (session, lv, asg, slots) { return call({ action: 'check', session: session, lv: lv, asg: asg, slots: slots }); },
+    log: function (session, events) { return call({ action: 'log', session: session, events: events }); },
+    problemsLoad: function (session) { return call({ action: 'problems.load', session: session }); },
+    problemsSave: function (session, problems, baseVersion) { return call({ action: 'problems.save', session: session, problems: problems, baseVersion: baseVersion }); },
+    logsIndex: function (session) { return call({ action: 'logs.index', session: session }); },
+    logsCsv: function (session, date, columns, withEmail) { return call({ action: 'logs.csv', session: session, date: date, columns: columns, withEmail: withEmail }); }
+  };
+})();
+</script>
+
+<div id="student">
+  <header class="top">
+    <h1>三角ロジック</h1>
+    <div>
+      <span id="who" class="status"></span>
+      <button id="btn-logout" class="ghost hidden" type="button">ログアウト</button>
+    </div>
+  </header>
+  <div class="grass"></div>
+  <main>
+    <section id="view-login" class="panel">
+      <p>Google アカウントでログインすると、学習の記録が残ります。</p>
+      <div id="g_id_onload" data-auto_prompt="false"></div>
+      <div class="g_id_signin" data-type="standard" data-size="large" data-text="signin_with" data-locale="ja"></div>
+      <p id="login-msg" class="feedback"></p>
+    </section>
+
+    <section id="view-levels" class="hidden">
+      <div class="panel">
+        <h2 style="margin:0 0 8px;font-size:17px;">問題を選ぶ</h2>
+        <p class="status" style="color:var(--text);opacity:1">青い板が問題です。✓ は、この端末で正解した問題です。</p>
+        <div id="levels" class="levels"></div>
+      </div>
+    </section>
+
+    <section id="view-problem" class="hidden">
+      <div class="panel">
+        <div id="prob-title" class="status" style="color:var(--text);opacity:1"></div>
+        <p id="prob-text" class="question"></p>
+        <div id="stage" class="stage"></div>
+        <div class="panel" style="background:rgba(255,255,255,.85);margin:8px 0 0">
+          <div id="palette-title" style="font-weight:bold;font-size:13px;margin-bottom:4px;color:#2b2b2b">カード（ドラッグするか、タップして頂点を選び、もう一度タップ）</div>
+          <div id="palette" class="palette"></div>
+        </div>
+        <div class="bar">
+          <button id="btn-prev" type="button">もどる</button>
+          <button id="btn-check" class="primary" type="button">こたえあわせ</button>
+          <button id="btn-next" type="button">つぎへ</button>
+          <button id="btn-list" type="button">問題一覧</button>
+        </div>
+        <div id="feedback" class="feedback" aria-live="polite"></div>
+      </div>
+    </section>
+    <p id="global-msg" class="feedback"></p>
+  </main>
+  <footer class="small">記録は一定の間隔でまとめて送られます。通信できないときは、この端末に残して、あとで送ります。</footer>
+</div>
+
+<script>
+// 学習者画面。判定は GAS 側（API.check）で行い、ここでは配置と操作のログを扱う。
+var STU = (function () {
+  var LS = {
+    session: 'tri_session', progress: 'tri_progress', queue: 'tri_queue', page: 'tri_page_session'
+  };
+  var FLAG_LABEL = TRI.FLAG_LABELS, FLAG_HINT = TRI.FLAG_HINTS, FLAG_ORDER = TRI.FLAG_ORDER;
+  var cfg = (typeof MSK_CONFIG !== 'undefined') ? MSK_CONFIG : {};
+  var APP_VERSION = 'gas-triangle-1.0.0';
+  var st = {
+    session: null, email: '', userId: '', problems: [], version: '', flushMs: 5000, maxBatch: 100,
+    cur: null, slots: {}, seq: 0, step: 0, trial: 0, attempt: '', pageSession: '', flushing: false, flushTimer: null
+  };
+
+  function $(id) { return document.getElementById(id); }
+  function lsGet(k, d) { try { var v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* 保存できないときは諦める */ } }
+  function uuid() {
+    return 'xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16);
+    });
+  }
+  function msg(text, isErr) {
+    var el = $('global-msg');
+    el.textContent = text || '';
+    el.style.color = isErr ? '#ffd0d0' : '';
+  }
+  function show(id) {
+    ['view-login', 'view-levels', 'view-problem'].forEach(function (v) { $(v).classList.toggle('hidden', v !== id); });
+  }
+  function pkey(p) { return p.lv * 1000 + p.asg; }
+  function progress() { return lsGet(LS.progress, {}); }
+
+  // ----- ログ（キューに溜めて、一定間隔でまとめて送る） -----
+  function enqueue(ope1, extra) {
+    st.seq += 1;
+    var e = {
+      event_id: st.pageSession + '-' + st.seq, page_session: st.pageSession, seq: st.seq,
+      client_ts: Date.now(), app_version: APP_VERSION, task_set: st.version, ope1: ope1,
+      lv: st.cur ? st.cur.lv : 0, asg: st.cur ? st.cur.asg : 0,
+      questionid: st.cur ? pkey(st.cur) : 0, question_name: st.cur ? st.cur.name : '',
+      attempt_id: st.attempt, session_uuid: st.attempt, trial: st.trial, step_no: st.step
+    };
+    Object.keys(extra || {}).forEach(function (k) { e[k] = extra[k]; });
+    var q = lsGet(LS.queue, []);
+    q.push(e);
+    if (q.length > 3000) q = q.slice(q.length - 3000);
+    lsSet(LS.queue, q);
+    return e;
+  }
+  function flush() {
+    if (st.flushing || !st.session) return;
+    var q = lsGet(LS.queue, []);
+    if (!q.length) return;
+    st.flushing = true;
+    var batch = q.slice(0, st.maxBatch);
+    API.log(st.session, batch).then(function (r) {
+      st.flushing = false;
+      if (r && r.ok) {
+        var ids = {};
+        batch.forEach(function (e) { ids[e.event_id] = 1; });
+        lsSet(LS.queue, lsGet(LS.queue, []).filter(function (e) { return !ids[e.event_id]; }));
+      } else if (r && r.code === 'auth') {
+        logout(true);
+      }
+    });
+  }
+  function startFlushing() {
+    if (st.flushTimer) return;
+    st.flushTimer = setInterval(flush, st.flushMs || 5000);
+    window.addEventListener('pagehide', flush);
+  }
+
+  // ----- 画面 -----
+  function renderLevels() {
+    var prog = progress();
+    var box = $('levels');
+    box.innerHTML = '';
+    if (!st.problems.length) {
+      box.innerHTML = '<p>まだ問題がありません。先生に伝えてください。</p>';
+      return;
+    }
+    st.problems.forEach(function (p, i) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tile' + (prog[pkey(p)] ? ' cleared' : '');
+      b.innerHTML = '<div>レベル ' + p.lv + '　' + p.asg + '番</div><div class="sub"></div>';
+      b.querySelector('.sub').textContent = (p.mode === 'compound' ? '複合三角形' : '単一三角形') + '　' + (p.topic || '');
+      b.addEventListener('click', function () { openProblem(i); });
+      box.appendChild(b);
+    });
+    show('view-levels');
+  }
+
+  function openProblem(i) {
+    st.cur = st.problems[i];
+    st.idx = i;
+    st.slots = {};
+    TRI.slotKeys(st.cur.mode).forEach(function (k) { st.slots[k] = 0; });
+    st.step = 0; st.trial = 0; st.attempt = uuid();
+    $('prob-title').textContent = 'レベル ' + st.cur.lv + '　' + st.cur.asg + '番　' + st.cur.name;
+    $('prob-text').textContent = st.cur.questiontext;
+    $('feedback').innerHTML = '';
+    show('view-problem');
+    renderStage();
+    renderPalette();
+    enqueue('PROB_BEGIN');
+    window.scrollTo(0, 0);
+  }
+
+  function slotLabel(mode, k) { return TRI.SLOT_LABELS[k] || k; }
+
+  function renderStage() {
+    var mode = st.cur.mode;
+    var stage = $('stage');
+    // 配置の形（単一は 3 頂点、複合は 5 頂点の 3 段）
+    var layout = mode === 'compound'
+      ? [['final_claim'], ['middle', 'upper_warrant'], ['lower_fact', 'lower_warrant']]
+      : [['claim'], ['fact', 'warrant']];
+    stage.innerHTML = '';
+    layout.forEach(function (keys) {
+      var row = document.createElement('div');
+      row.className = 'row';
+      keys.forEach(function (k) { row.appendChild(makeSlot(k)); });
+      stage.appendChild(row);
+    });
+  }
+
+  function makeSlot(k) {
+    var el = document.createElement('div');
+    el.className = 'slot';
+    el.dataset.slot = k;
+    var lab = document.createElement('span');
+    lab.className = 'label';
+    lab.textContent = slotLabel(st.cur.mode, k);
+    el.appendChild(lab);
+    var no = st.slots[k];
+    if (no) {
+      var c = cardOf(no);
+      el.appendChild(cardEl(c, true));
+      el.classList.add('filled');
+    } else {
+      var ph = document.createElement('span');
+      ph.textContent = 'カードをここに置く';
+      ph.style.opacity = '.6';
+      el.appendChild(ph);
+    }
+    el.addEventListener('dragover', function (e) { e.preventDefault(); el.classList.add('over'); });
+    el.addEventListener('dragleave', function () { el.classList.remove('over'); });
+    el.addEventListener('drop', function (e) {
+      e.preventDefault(); el.classList.remove('over');
+      var no2 = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      if (no2) place(no2, k);
+    });
+    el.addEventListener('click', function () {
+      if (st.selected) { place(st.selected, k); st.selected = 0; }
+      else if (no) { remove(k); }
+    });
+    return el;
+  }
+
+  function cardOf(no) {
+    for (var i = 0; i < st.cur.cards.length; i++) if (st.cur.cards[i].card_no === no) return st.cur.cards[i];
+    return { card_no: no, text: '?' };
+  }
+
+  function cardEl(c, inSlot) {
+    var d = document.createElement('div');
+    d.className = 'card';
+    d.textContent = c.text;
+    d.dataset.no = c.card_no;
+    if (!inSlot) {
+      d.draggable = true;
+      d.addEventListener('dragstart', function (e) {
+        e.dataTransfer.setData('text/plain', String(c.card_no));
+        d.classList.add('dragging');
+      });
+      d.addEventListener('dragend', function () { d.classList.remove('dragging'); });
+      d.addEventListener('click', function (e) {
+        e.stopPropagation();
+        st.selected = st.selected === c.card_no ? 0 : c.card_no;
+        renderPalette();
+      });
+    }
+    return d;
+  }
+
+  function renderPalette() {
+    var pal = $('palette');
+    pal.innerHTML = '';
+    var placed = {};
+    Object.keys(st.slots).forEach(function (k) { if (st.slots[k]) placed[st.slots[k]] = 1; });
+    st.cur.cards.forEach(function (c) {
+      if (placed[c.card_no]) return;
+      var d = cardEl(c, false);
+      if (st.selected === c.card_no) d.classList.add('selected');
+      pal.appendChild(d);
+    });
+    $('palette-title').textContent = st.selected
+      ? 'カードを選びました。置く頂点をタップしてください'
+      : 'カード（ドラッグするか、タップして選び、頂点をタップ）';
+  }
+
+  function place(no, k) {
+    var mode = st.cur.mode;
+    TRI.slotKeys(mode).forEach(function (s) { if (st.slots[s] === no) st.slots[s] = 0; });
+    st.slots[k] = no;
+    st.selected = 0;
+    st.step += 1;
+    enqueue('SET', { slot_key: k, card: no, ans_str: ansStr() });
+    renderStage();
+    renderPalette();
+  }
+
+  function remove(k) {
+    var no = st.slots[k];
+    if (!no) return;
+    st.slots[k] = 0;
+    st.step += 1;
+    enqueue('REMOVE', { slot_key: k, card: no, ans_str: ansStr() });
+    renderStage();
+    renderPalette();
+  }
+
+  function ansStr() {
+    return TRI.slotKeys(st.cur.mode).map(function (k) { return st.slots[k] || 0; }).join(',');
+  }
+
+  // 結果の表示。スマホではこたえあわせのボタンの下に出るので、表示のたびにそこまでスクロールして見せる
+  function setFeedback(html) {
+    var fb = $('feedback');
+    fb.innerHTML = html;
+    if (fb.scrollIntoView) fb.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+  }
+
+  function renderFlags(flags, correct) {
+    if (correct) {
+      setFeedback('<div class="ok">論証として妥当です！</div>');
+      return;
+    }
+    var html = '<div class="hint">もう一度考えてみよう</div>';
+    FLAG_ORDER.forEach(function (k) {
+      if (flags[k] !== undefined && !flags[k]) {
+        html += '<div class="hint">・<b>' + FLAG_LABEL[k] + '</b>: ' + FLAG_HINT[k] + '</div>';
+      }
+    });
+    setFeedback(html);
+  }
+
+  function check() {
+    var mode = st.cur.mode;
+    var empty = TRI.slotKeys(mode).some(function (k) { return !st.slots[k]; });
+    if (empty) {
+      setFeedback('<div class="hint">すべての頂点にカードを置いてください</div>');
+      return;
+    }
+    st.trial += 1;
+    $('btn-check').disabled = true;
+    API.check(st.session, st.cur.lv, st.cur.asg, st.slots).then(function (r) {
+      $('btn-check').disabled = false;
+      if (!r || !r.ok) {
+        if (r && r.code === 'auth') { logout(true); return; }
+        setFeedback('<div class="err">' + ((r && r.error) || '評価結果が取得できませんでした') + '</div>');
+        return;
+      }
+      var flags = {};
+      ['p_s', 't_s', 'e_s', 'm_s', 'm_s_fact', 'm_s_w_obj', 'm_s_w_exc', 'm_s_w_rel', 'c_s', 'i_p_s', 'f_s'].forEach(function (k) {
+        flags[k] = r.flags[k] ? 1 : 0;
+      });
+      enqueue('CHECK', Object.assign({ check_flag: 1, jdg: r.correct ? 's' : 'f', ans_str: ansStr() }, flags));
+      renderFlags(r.flags, r.correct);
+      if (r.correct) {
+        var prog = progress();
+        prog[pkey(st.cur)] = 1;
+        lsSet(LS.progress, prog);
+        enqueue('PROB_END', { jdg: 's', ans_str: ansStr() });
+        flush();
+      }
+    });
+  }
+
+  function go(delta) {
+    var n = st.idx + delta;
+    if (n < 0 || n >= st.problems.length) return;
+    openProblem(n);
+  }
+
+  function logout(silent) {
+    if (st.session) enqueue('LOGOUT');
+    flush();
+    lsSet(LS.session, null);
+    st.session = null;
+    if (!silent) msg('ログアウトしました。');
+    $('btn-logout').classList.add('hidden');
+    $('who').textContent = '';
+    show('view-login');
+  }
+
+  // ----- ログイン -----
+  function onCredential(resp) {
+    $('login-msg').textContent = '確認しています…';
+    API.login(resp.credential).then(function (r) {
+      if (!r || !r.ok) { $('login-msg').textContent = (r && r.error) || 'ログインできませんでした'; return; }
+      lsSet(LS.session, r.session);
+      enter(r);
+      enqueue('LOGIN');
+      flush();
+    });
+  }
+  window.onGoogleCredential = onCredential;
+
+  function enter(r) {
+    st.session = r.session;
+    st.email = r.email; st.userId = r.userId;
+    st.problems = r.problems || [];
+    st.version = r.problemsVersion || '';
+    st.flushMs = r.flushMs || 5000; st.maxBatch = r.maxBatch || 100;
+    $('who').textContent = 'ログイン中：' + (r.registered ? (r.grade + '年 ' + r.cls + '組 ' + r.number + '番') : r.userId);
+    $('btn-logout').classList.remove('hidden');
+    renderLevels();
+    startFlushing();
+  }
+
+  function resumeSaved() {
+    var saved = lsGet(LS.session, null);
+    if (!saved) return;
+    API.resume(saved).then(function (r) {
+      if (r && r.ok) enter(r);
+      else if (r && r.code === 'auth') lsSet(LS.session, null);
+      else msg((r && r.error) || '通信できませんでした。', true);
+    });
+  }
+
+  function init() {
+    // 読み込みごとに新しい接頭辞にする（seq は読み込みのたびに 1 から振るため、event_id の重複を避ける）
+    st.pageSession = uuid();
+    var c = cfg.clientId || '';
+    if (c) {
+      var g = $('g_id_onload');
+      g.setAttribute('data-client_id', c);
+      g.setAttribute('data-callback', 'onGoogleCredential');
+    } else {
+      $('login-msg').textContent = 'web/config.json の clientId が空です（ログインできません）。';
+    }
+    $('btn-prev').addEventListener('click', function () { go(-1); });
+    $('btn-next').addEventListener('click', function () { go(1); });
+    $('btn-check').addEventListener('click', check);
+    $('btn-list').addEventListener('click', function () { renderLevels(); });
+    $('btn-logout').addEventListener('click', function () { logout(false); });
+    window.addEventListener('beforeunload', function () { flush(); });
+    show('view-login');
+    resumeSaved();
+  }
+  return { init: init, _st: st };
+})();
+document.addEventListener('DOMContentLoaded', function () { STU.init(); });
+</script>
+
+</body>
+</html>
