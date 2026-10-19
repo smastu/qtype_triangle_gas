@@ -8,28 +8,26 @@
 <style>
 /* 三角ロジック：ゲーム調（空・草・木・緑の板カード・クリーム色のスロット）。styles.css（移植元）の配色に合わせる。 */
 :root {
-  --sky-top: #bfe6ff; --sky-bottom: #e9f8ff; --grass: #7cc35a; --grass-dark: #4e8f35;
-  --wood: #8b5a2b; --wood-dark: #5b3a1a; --board: #5fae4a; --board-edge: #3d7d2e;
-  --cream: #fff6dc; --cream-edge: #d9c48a; --text: #2b2b2b; --ok: #2e7d32; --ng: #b23b3b;
+  /* モンサクン版（MonsakunStyle.html）と同じ配色 */
+  --side: #ded1a8; --paper: #fbf7dc; --ink: #1a1a1a; --line: #000;
+  --board: #5d7c5c; --board-edge: #3f5a3e; --board-frame: #c6a87a;
+  --wood: #c6a87a; --wood-dark: #000; --btn-on: #efc85e; --btn-edge: #000; --btn-off: #d9cfa8;
+  --cream: #fbf7dc; --cream-edge: #000; --text: #1a1a1a; --ok: #2e7d32; --ng: #b23b3b;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --sky-top: #1d3350; --sky-bottom: #2a4a3a; --cream: #4a4330; --cream-edge: #7d6e40; --text: #f2f2f2; }
-}
-:root[data-theme="dark"] { --sky-top: #1d3350; --sky-bottom: #2a4a3a; --cream: #4a4330; --cream-edge: #7d6e40; --text: #f2f2f2; }
 * { box-sizing: border-box; }
-body { margin: 0; background: linear-gradient(var(--sky-top), var(--sky-bottom)); color: var(--text);
+body { margin: 0; background: var(--side); color: var(--text);
   font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif; min-height: 100vh; }
-header.top { background: var(--wood); color: #fff; padding: 10px 16px; display: flex; justify-content: space-between;
-  align-items: center; gap: 8px; flex-wrap: wrap; border-bottom: 4px solid var(--wood-dark); }
+header.top { background: var(--paper); color: var(--ink); padding: 10px 16px; display: flex; justify-content: space-between;
+  align-items: center; gap: 8px; flex-wrap: wrap; border-bottom: 4px solid var(--line); }
 header.top h1 { font-size: 18px; margin: 0; }
 main { padding: 12px 16px 80px; max-width: 980px; margin: 0 auto; }
 .grass { background: linear-gradient(var(--grass), var(--grass-dark)); height: 18px; margin-top: -2px; }
-button { font: inherit; border: 0; border-radius: 10px; padding: 10px 16px; cursor: pointer; background: #fff; color: #333;
+button { font: inherit; border: 3px solid var(--line); border-radius: 6px; padding: 10px 16px; cursor: pointer; background: var(--btn-on); color: var(--ink);
   box-shadow: 0 3px 0 #b9b19a; min-height: 44px; }
-button.primary { background: var(--board); color: #fff; box-shadow: 0 3px 0 var(--board-edge); font-weight: bold; }
+button.primary { background: var(--board); color: #fff; font-weight: bold; }
 button:disabled { opacity: .5; cursor: default; }
 button.ghost { background: transparent; color: #fff; box-shadow: none; border: 1px solid #fff; }
-.panel { background: rgba(255,255,255,.7); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+.panel { background: rgba(251,247,220,.85); border: 3px solid var(--line); border-radius: 6px; padding: 14px; margin-bottom: 12px; }
 .levels { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
 .tile { background: var(--board); color: #fff; border-radius: 12px; padding: 10px 12px; box-shadow: 0 4px 0 var(--board-edge);
   cursor: pointer; text-align: left; min-height: 64px; }
@@ -52,7 +50,7 @@ button.ghost { background: transparent; color: #fff; box-shadow: none; border: 1
 .palette .card { min-height: 60px; }
 .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
 .feedback { margin-top: 10px; min-height: 24px; font-size: 14px; color: #2b2b2b; }
-.feedback:not(:empty) { background: rgba(255,255,255,.94); border-radius: 10px; padding: 8px 12px; }
+.feedback:not(:empty) { background: var(--paper); border: 3px solid var(--line); border-radius: 6px; padding: 8px 12px; }
 .feedback .ok { color: var(--ok); font-weight: bold; font-size: 16px; }
 .feedback .hint { color: #2b2b2b; margin: 4px 0; }
 .feedback .err { color: var(--ng); }
